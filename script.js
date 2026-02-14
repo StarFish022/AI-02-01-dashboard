@@ -163,7 +163,7 @@ function renderSalesCard(dayData) {
 function renderSalesTable(rows) {
   const body = document.getElementById("salesTableBody");
   body.innerHTML = "";
-  rows.slice(0, 8).forEach((row) => {
+  rows.slice(0, 7).forEach((row) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${row.title}</td>
@@ -224,7 +224,8 @@ function renderMetrics(dayData) {
 
   const [name, stats] = [...byProduct.entries()].sort((a, b) => b[1].count - a[1].count)[0];
   document.getElementById("topProductName").textContent = name;
-  document.getElementById("topProductStats").textContent = `Продано: ${fmtNumber(stats.count)} • Выручка: ${fmtMoney(stats.amount)}`;
+  document.getElementById("topProductStats").innerHTML =
+    `Продано: <strong>${fmtNumber(stats.count)}</strong> • Выручка: <strong>${fmtMoney(stats.amount)}</strong>`;
 
   const salesCountSeries = dayData.map((d) => d.count);
   const salesAmountSeries = dayData.map((d) => Math.round(d.amount));
