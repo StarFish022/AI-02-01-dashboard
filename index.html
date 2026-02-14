@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Source+Sans+3:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-container">
+      <main class="dashboard-grid">
+        <section class="card section-main">
+          <h2>
+            <span class="section-icon">▣</span>
+            Продажи за период
+          </h2>
+          <div class="headline-amount" id="totalRevenue">$0</div>
+          <div class="headline-trend" id="salesTrend">▲ 0% vs прошлый период</div>
+
+          <div class="bar-chart" id="salesBars"></div>
+
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Товар</th>
+                  <th>Дата</th>
+                  <th>Кол-во</th>
+                  <th>Сумма</th>
+                </tr>
+              </thead>
+              <tbody id="salesTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="section-sales-metrics" aria-label="Метрики продаж">
+          <article class="metric-card">
+            <p class="metric-label">Продажи: количество</p>
+            <p class="metric-big" id="salesCountToday">0</p>
+            <p class="metric-periods">
+              Неделя: <strong id="salesCountWeek">0</strong> • Месяц:
+              <strong id="salesCountMonth">0</strong>
+            </p>
+            <div class="mini-chart" data-chart="salesCount"></div>
+          </article>
+
+          <article class="metric-card">
+            <p class="metric-label">Продажи: сумма</p>
+            <p class="metric-big" id="salesAmountToday">$0</p>
+            <p class="metric-periods">
+              Неделя: <strong id="salesAmountWeek">$0</strong> • Месяц:
+              <strong id="salesAmountMonth">$0</strong>
+            </p>
+            <div class="mini-chart" data-chart="salesAmount"></div>
+          </article>
+
+          <article class="metric-card">
+            <p class="metric-label">Топ товар месяца</p>
+            <p class="metric-big metric-product" id="topProductName">-</p>
+            <p class="metric-periods" id="topProductStats">Продано: 0 • Выручка: $0</p>
+          </article>
+        </section>
+
+        <section class="card section-telegram">
+          <h2>
+            <span class="section-icon telegram-icon">➤</span>
+            Telegram
+            <span class="badge">3 post</span>
+          </h2>
+          <div class="chat-list" id="telegramList"></div>
+        </section>
+
+        <section class="section-youtube-metrics" aria-label="Метрики YouTube">
+          <article class="metric-card">
+            <p class="metric-label">YouTube просмотры</p>
+            <p class="metric-big" id="ytViewsToday">0</p>
+            <p class="metric-periods">
+              Неделя: <strong id="ytViewsWeek">0</strong> • Месяц:
+              <strong id="ytViewsMonth">0</strong>
+            </p>
+            <div class="mini-chart" data-chart="youtubeViews"></div>
+          </article>
+
+          <article class="metric-card">
+            <p class="metric-label">YouTube подписчики</p>
+            <p class="metric-big" id="ytSubsToday">0</p>
+            <p class="metric-periods">
+              Неделя: <strong id="ytSubsWeek">0</strong> • Месяц:
+              <strong id="ytSubsMonth">0</strong>
+            </p>
+            <div class="mini-chart" data-chart="youtubeSubscribers"></div>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <template id="telegramItemTemplate">
+      <article class="chat-item">
+        <div class="chat-header">
+          <span class="chat-author"></span>
+          <span class="chat-time"></span>
+        </div>
+        <h3 class="chat-title"></h3>
+        <p class="chat-preview"></p>
+        <button class="chat-open" type="button">Читать полностью</button>
+      </article>
+    </template>
+
+    <dialog id="postDialog">
+      <form method="dialog">
+        <h3 id="dialogTitle"></h3>
+        <p id="dialogChannel" class="dialog-channel"></p>
+        <p id="dialogBody" class="dialog-body"></p>
+        <button class="context-switcher" type="submit">Закрыть</button>
+      </form>
+    </dialog>
+
+    <script src="./script.js"></script>
+  </body>
+</html>
