@@ -268,8 +268,49 @@ function renderTelegramPosts() {
   });
 }
 
+function renderUtilityDateTime() {
+  const dateNode = document.getElementById("utilityDate");
+  const timeNode = document.getElementById("utilityTime");
+  if (!dateNode || !timeNode) return;
+
+  const update = () => {
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, "0");
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const year = now.getFullYear();
+    dateNode.textContent = `${day}-${month}-${year}`;
+    timeNode.textContent = now.toLocaleTimeString("ru-RU", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  };
+
+  update();
+  setInterval(update, 1000);
+}
+
+function syncRightColumnHeight() {
+  const salesPanel = document.querySelector(".section-main");
+  const rightStack = document.querySelector(".section-right-stack");
+  const utilityPanel = document.querySelector(".section-utility");
+  const telegramPanel = document.querySelector(".section-telegram");
+  if (!salesPanel || !rightStack || !utilityPanel || !telegramPanel) return;
+
+  const totalHeight = Math.round(salesPanel.getBoundingClientRect().height);
+  rightStack.style.height = `${totalHeight}px`;
+
+  const gap = parseFloat(getComputedStyle(rightStack).rowGap || "0");
+  const utilityHeight = Math.round(utilityPanel.getBoundingClientRect().height);
+  const telegramHeight = Math.max(180, totalHeight - utilityHeight - gap);
+  telegramPanel.style.height = `${telegramHeight}px`;
+}
+
 const dayData = getSalesByDay(salesRows);
 renderSalesCard(dayData);
 renderSalesTable([...salesRows].reverse());
 renderMetrics(dayData);
 renderTelegramPosts();
+renderUtilityDateTime();
+syncRightColumnHeight();
+window.addEventListener("resize", syncRightColumnHeight);

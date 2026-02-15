@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Dashboard</title>
+    <link rel="icon" type="image/png" href="./templates/logo-starfish-favicon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -68,13 +69,28 @@
           </article>
         </section>
 
-        <section class="card section-telegram">
-          <h2>
-            <span class="section-icon telegram-icon">➤</span>
-            Telegram
-            <span class="badge">3 post</span>
-          </h2>
-          <div class="chat-list" id="telegramList"></div>
+        <section class="section-right-stack" aria-label="Служебная панель и Telegram">
+          <section class="card section-utility">
+            <div class="utility-split">
+              <button class="utility-refresh-button" type="button" aria-label="Обновить данные о продажах">
+                <img src="./templates/logo-starfish-refresh-02.png" alt="logo-starfish-refresh-02" class="utility-logo-image" />
+              </button>
+
+              <div class="utility-datetime">
+                <p class="utility-time" id="utilityTime">00:00:00</p>
+                <p class="utility-date" id="utilityDate">01-january-2026</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="card section-telegram">
+            <h2>
+              <span class="section-icon telegram-icon">➤</span>
+              Telegram
+              <span class="badge">3 post</span>
+            </h2>
+            <div class="chat-list" id="telegramList"></div>
+          </section>
         </section>
 
         <section class="section-youtube-metrics" aria-label="Метрики YouTube">
