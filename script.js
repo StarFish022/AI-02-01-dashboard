@@ -1,4 +1,4 @@
-const salesRows = [
+const fallbackSalesRows = [
   { title: "Свитер", cost: 35.16, count: 2, date: "2026-01-01" },
   { title: "Юбка", cost: 32.23, count: 4, date: "2026-01-01" },
   { title: "Рубашка", cost: 38.52, count: 1, date: "2026-01-01" },
@@ -23,12 +23,12 @@ const salesRows = [
   { title: "Спортивный костюм", cost: 57.07, count: 2, date: "2026-01-05" },
 ];
 
-const chartData = {
+const fallbackChartData = {
   youtubeViews: [12420, 13180, 12760, 13990, 14120, 14830, 15210, 14720, 15940, 16610, 17400, 18940],
   youtubeSubscribers: [82, 94, 88, 101, 97, 113, 122, 118, 136, 149, 171, 212],
 };
 
-const telegramPosts = [
+const fallbackTelegramPosts = [
   {
     channel: "YouTube Creator RU",
     title: "Как поднять удержание на первых 30 секундах",
@@ -42,6 +42,7 @@ const telegramPosts = [
 3) Короткий план из 2-3 пунктов.
 
 В конце добавили CTA на подписку и карточку на следующее видео.`,
+    url: null,
   },
   {
     channel: "Ecom Analytics",
@@ -56,6 +57,7 @@ const telegramPosts = [
 - количество повторов
 
 Шаблон таблицы приложен в закрепе.`,
+    url: null,
   },
   {
     channel: "Telegram Product Notes",
@@ -69,8 +71,31 @@ const telegramPosts = [
 - рост переходов на сайт на 8%
 
 Главное: фиксировать тему поста и формат в отдельной таблице, чтобы видеть повторяемые паттерны.`,
+    url: null,
   },
 ];
+
+const state = {
+  salesRows: [...fallbackSalesRows],
+  dayData: getSalesByDay(fallbackSalesRows),
+  chartData: { ...fallbackChartData },
+  telegramPosts: [...fallbackTelegramPosts],
+  dashboard: null,
+};
+
+const API_BASE_URL = getApiBaseUrl();
+
+function getApiBaseUrl() {
+  const meta = document.querySelector('meta[name="dashboard-api-base-url"]');
+  const fromMeta = meta?.getAttribute("content")?.trim();
+  const fromWindow = window.DASHBOARD_API_BASE_URL?.trim?.();
+  const value = fromMeta || fromWindow || "";
+  return value.replace(/\/+$/, "");
+}
+
+function buildApiUrl(path) {
+  return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
+}
 
 function fmtNumber(value) {
   return new Intl.NumberFormat("ru-RU").format(value);
@@ -103,23 +128,23 @@ function getSalesByDay(rows) {
 }
 
 function aggregateLastDays(dayData, days) {
-  const latest = dayData[dayData.length - 1];
-  const end = new Date(latest.date);
-  const start = new Date(end);
-  start.setDate(start.getDate() - (days - 1));
-
-  return dayData.filter((row) => {
-    const date = new Date(row.date);
-    return date >= start && date <= end;
-  });
+  if (dayData.length === 0) {
+    return [];
+  }
+  return dayData.slice(-days);
 }
 
 function buildMiniChart(container, values, color) {
+  if (!values.length) {
+    container.innerHTML = "";
+    return;
+  }
+
   const max = Math.max(...values);
   const min = Math.min(...values);
   const range = max - min || 1;
   const points = values.map((value, i) => {
-    const x = (i / (values.length - 1)) * 100;
+    const x = values.length === 1 ? 50 : (i / (values.length - 1)) * 100;
     const y = 30 - ((value - min) / range) * 24;
     return `${x},${y}`;
   });
@@ -141,19 +166,26 @@ function buildMiniChart(container, values, color) {
 }
 
 function renderSalesCard(dayData) {
-  const total = dayData.reduce((sum, item) => sum + item.amount, 0);
-  const prevTotal = total * 0.89;
-  const trend = ((total - prevTotal) / prevTotal) * 100;
+  const apiTotals = state.dashboard?.sales?.totals;
+  const apiTrend = state.dashboard?.sales?.trendPct;
+
+  const total = typeof apiTotals?.month?.amount === "number"
+    ? apiTotals.month.amount
+    : dayData.reduce((sum, item) => sum + item.amount, 0);
+
+  const trend = typeof apiTrend === "number" ? apiTrend : 0;
+  const trendSign = trend >= 0 ? "▲" : "▼";
+
   document.getElementById("totalRevenue").textContent = fmtMoney(total);
-  document.getElementById("salesTrend").textContent = `▲ ${trend.toFixed(1)}% vs прошлый период`;
+  document.getElementById("salesTrend").textContent = `${trendSign} ${Math.abs(trend).toFixed(1)}% vs прошлый период`;
 
   const barHost = document.getElementById("salesBars");
-  const maxAmount = Math.max(...dayData.map((d) => d.amount));
+  const maxAmount = Math.max(1, ...dayData.map((d) => d.amount));
   barHost.innerHTML = "";
-  dayData.forEach((day, index) => {
+  dayData.slice(-12).forEach((day, index, source) => {
     const bar = document.createElement("div");
     const height = Math.max(18, (day.amount / maxAmount) * 100);
-    bar.className = index === dayData.length - 1 ? "bar active" : "bar";
+    bar.className = index === source.length - 1 ? "bar active" : "bar";
     bar.style.height = `${height}%`;
     bar.title = `${day.date}: ${fmtMoney(day.amount)}`;
     barHost.appendChild(bar);
@@ -180,21 +212,35 @@ function renderMetrics(dayData) {
   const week = aggregateLastDays(dayData, 7);
   const month = aggregateLastDays(dayData, 30);
 
-  const countToday = today.reduce((sum, item) => sum + item.count, 0);
-  const countWeek = week.reduce((sum, item) => sum + item.count, 0);
-  const countMonth = month.reduce((sum, item) => sum + item.count, 0);
+  const fallbackCountToday = today.reduce((sum, item) => sum + item.count, 0);
+  const fallbackCountWeek = week.reduce((sum, item) => sum + item.count, 0);
+  const fallbackCountMonth = month.reduce((sum, item) => sum + item.count, 0);
 
-  const amountToday = today.reduce((sum, item) => sum + item.amount, 0);
-  const amountWeek = week.reduce((sum, item) => sum + item.amount, 0);
-  const amountMonth = month.reduce((sum, item) => sum + item.amount, 0);
+  const fallbackAmountToday = today.reduce((sum, item) => sum + item.amount, 0);
+  const fallbackAmountWeek = week.reduce((sum, item) => sum + item.amount, 0);
+  const fallbackAmountMonth = month.reduce((sum, item) => sum + item.amount, 0);
 
-  const ytViewsToday = chartData.youtubeViews[chartData.youtubeViews.length - 1];
-  const ytViewsWeek = chartData.youtubeViews.slice(-7).reduce((a, b) => a + b, 0);
-  const ytViewsMonth = chartData.youtubeViews.reduce((a, b) => a + b, 0);
+  const salesTotals = state.dashboard?.sales?.totals;
+  const youtubeTotals = state.dashboard?.youtube?.totals;
 
-  const ytSubsToday = chartData.youtubeSubscribers[chartData.youtubeSubscribers.length - 1];
-  const ytSubsWeek = chartData.youtubeSubscribers.slice(-7).reduce((a, b) => a + b, 0);
-  const ytSubsMonth = chartData.youtubeSubscribers.reduce((a, b) => a + b, 0);
+  const countToday = salesTotals?.today?.count ?? fallbackCountToday;
+  const countWeek = salesTotals?.week?.count ?? fallbackCountWeek;
+  const countMonth = salesTotals?.month?.count ?? fallbackCountMonth;
+
+  const amountToday = salesTotals?.today?.amount ?? fallbackAmountToday;
+  const amountWeek = salesTotals?.week?.amount ?? fallbackAmountWeek;
+  const amountMonth = salesTotals?.month?.amount ?? fallbackAmountMonth;
+
+  const ytViewsSeries = state.chartData.youtubeViews;
+  const ytSubsSeries = state.chartData.youtubeSubscribers;
+
+  const ytViewsToday = youtubeTotals?.views?.today ?? ytViewsSeries.at(-1) ?? 0;
+  const ytViewsWeek = youtubeTotals?.views?.week ?? ytViewsSeries.slice(-7).reduce((a, b) => a + b, 0);
+  const ytViewsMonth = youtubeTotals?.views?.month ?? ytViewsSeries.slice(-30).reduce((a, b) => a + b, 0);
+
+  const ytSubsToday = youtubeTotals?.subscribers?.today ?? ytSubsSeries.at(-1) ?? 0;
+  const ytSubsWeek = youtubeTotals?.subscribers?.week ?? ytSubsSeries.slice(-7).reduce((a, b) => a + b, 0);
+  const ytSubsMonth = youtubeTotals?.subscribers?.month ?? ytSubsSeries.slice(-30).reduce((a, b) => a + b, 0);
 
   document.getElementById("ytViewsToday").textContent = fmtNumber(ytViewsToday);
   document.getElementById("ytViewsWeek").textContent = fmtNumber(ytViewsWeek);
@@ -212,26 +258,36 @@ function renderMetrics(dayData) {
   document.getElementById("salesAmountWeek").textContent = fmtMoney(amountWeek);
   document.getElementById("salesAmountMonth").textContent = fmtMoney(amountMonth);
 
-  const byProduct = new Map();
-  salesRows.forEach((row) => {
-    if (!byProduct.has(row.title)) {
-      byProduct.set(row.title, { count: 0, amount: 0 });
+  const apiTop = state.dashboard?.sales?.topProduct;
+  if (apiTop && apiTop.name) {
+    document.getElementById("topProductName").textContent = apiTop.name;
+    document.getElementById("topProductStats").innerHTML =
+      `Продано: <strong>${fmtNumber(apiTop.count)}</strong> • Выручка: <strong>${fmtMoney(apiTop.amount)}</strong>`;
+  } else {
+    const byProduct = new Map();
+    state.salesRows.forEach((row) => {
+      if (!byProduct.has(row.title)) {
+        byProduct.set(row.title, { count: 0, amount: 0 });
+      }
+      const item = byProduct.get(row.title);
+      item.count += row.count;
+      item.amount += amountForRow(row);
+    });
+    const sorted = [...byProduct.entries()].sort((a, b) => b[1].count - a[1].count);
+    const top = sorted[0];
+    if (top) {
+      const [name, stats] = top;
+      document.getElementById("topProductName").textContent = name;
+      document.getElementById("topProductStats").innerHTML =
+        `Продано: <strong>${fmtNumber(stats.count)}</strong> • Выручка: <strong>${fmtMoney(stats.amount)}</strong>`;
     }
-    const item = byProduct.get(row.title);
-    item.count += row.count;
-    item.amount += amountForRow(row);
-  });
+  }
 
-  const [name, stats] = [...byProduct.entries()].sort((a, b) => b[1].count - a[1].count)[0];
-  document.getElementById("topProductName").textContent = name;
-  document.getElementById("topProductStats").innerHTML =
-    `Продано: <strong>${fmtNumber(stats.count)}</strong> • Выручка: <strong>${fmtMoney(stats.amount)}</strong>`;
-
-  const salesCountSeries = dayData.map((d) => d.count);
-  const salesAmountSeries = dayData.map((d) => Math.round(d.amount));
+  const salesCountSeries = dayData.slice(-30).map((d) => d.count);
+  const salesAmountSeries = dayData.slice(-30).map((d) => Math.round(d.amount));
   const seriesMap = {
-    youtubeViews: chartData.youtubeViews,
-    youtubeSubscribers: chartData.youtubeSubscribers,
+    youtubeViews: ytViewsSeries.slice(-30),
+    youtubeSubscribers: ytSubsSeries.slice(-30),
     salesCount: salesCountSeries,
     salesAmount: salesAmountSeries,
   };
@@ -239,7 +295,7 @@ function renderMetrics(dayData) {
   document.querySelectorAll("[data-chart]").forEach((chartHost) => {
     const key = chartHost.dataset.chart;
     const color = key.includes("sales") ? "#2b58de" : "#ff7e5f";
-    buildMiniChart(chartHost, seriesMap[key], color);
+    buildMiniChart(chartHost, seriesMap[key] || [], color);
   });
 }
 
@@ -250,9 +306,14 @@ function renderTelegramPosts() {
   const dialogTitle = document.getElementById("dialogTitle");
   const dialogChannel = document.getElementById("dialogChannel");
   const dialogBody = document.getElementById("dialogBody");
+  const badge = document.querySelector(".section-telegram .badge");
+
+  if (badge) {
+    badge.textContent = `${state.telegramPosts.length} post`;
+  }
 
   list.innerHTML = "";
-  telegramPosts.forEach((post) => {
+  state.telegramPosts.forEach((post) => {
     const node = template.content.cloneNode(true);
     node.querySelector(".chat-author").textContent = post.channel;
     node.querySelector(".chat-time").textContent = post.time;
@@ -263,6 +324,9 @@ function renderTelegramPosts() {
       dialogChannel.textContent = post.channel;
       dialogBody.textContent = post.body;
       dialog.showModal();
+      if (post.url) {
+        dialogChannel.innerHTML = `<a href="${post.url}" target="_blank" rel="noopener noreferrer">${post.channel}</a>`;
+      }
     });
     list.appendChild(node);
   });
@@ -306,11 +370,127 @@ function syncRightColumnHeight() {
   telegramPanel.style.height = `${telegramHeight}px`;
 }
 
-const dayData = getSalesByDay(salesRows);
-renderSalesCard(dayData);
-renderSalesTable([...salesRows].reverse());
-renderMetrics(dayData);
-renderTelegramPosts();
-renderUtilityDateTime();
-syncRightColumnHeight();
-window.addEventListener("resize", syncRightColumnHeight);
+function renderAll() {
+  renderSalesCard(state.dayData);
+  renderSalesTable([...state.salesRows].reverse());
+  renderMetrics(state.dayData);
+  renderTelegramPosts();
+  syncRightColumnHeight();
+}
+
+function parseNumber(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function setStateFromApi(payload) {
+  state.dashboard = payload || null;
+
+  const salesRows = payload?.sales?.rows;
+  if (Array.isArray(salesRows) && salesRows.length) {
+    state.salesRows = salesRows
+      .map((row) => ({
+        title: String(row.title ?? ""),
+        cost: parseNumber(row.cost, 0),
+        count: Math.max(0, Math.round(parseNumber(row.count, 0))),
+        date: String(row.date ?? ""),
+      }))
+      .filter((row) => row.title && row.date);
+  }
+
+  const daily = payload?.sales?.daily;
+  if (Array.isArray(daily) && daily.length) {
+    state.dayData = daily
+      .map((row) => ({
+        date: String(row.date ?? ""),
+        amount: parseNumber(row.amount, 0),
+        count: Math.max(0, Math.round(parseNumber(row.count, 0))),
+      }))
+      .filter((row) => row.date);
+  } else {
+    state.dayData = getSalesByDay(state.salesRows);
+  }
+
+  const youtubeDaily = payload?.youtube?.daily;
+  if (Array.isArray(youtubeDaily) && youtubeDaily.length) {
+    state.chartData.youtubeViews = youtubeDaily.map((row) => parseNumber(row.viewsDelta, 0));
+    state.chartData.youtubeSubscribers = youtubeDaily.map((row) => parseNumber(row.subscribersDelta, 0));
+  }
+
+  const telegramPosts = payload?.telegram?.posts;
+  if (Array.isArray(telegramPosts)) {
+    state.telegramPosts = telegramPosts.map((post) => {
+      const createdAt = post.createdAt ? new Date(post.createdAt) : null;
+      const time = createdAt && !Number.isNaN(createdAt.getTime())
+        ? createdAt.toLocaleString("ru-RU", { hour: "2-digit", minute: "2-digit" })
+        : "—";
+      return {
+        channel: String(post.channel ?? "Telegram"),
+        title: String(post.title ?? "Пост"),
+        excerpt: String(post.excerpt ?? ""),
+        body: String(post.body ?? ""),
+        time,
+        url: post.url ? String(post.url) : null,
+      };
+    });
+  }
+}
+
+async function requestJson(path, options = {}) {
+  const response = await fetch(buildApiUrl(path), {
+    headers: { Accept: "application/json" },
+    ...options,
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`${path} failed: ${response.status} ${text}`);
+  }
+  return response.json();
+}
+
+async function loadDashboardFromApi() {
+  const payload = await requestJson("/api/dashboard");
+  setStateFromApi(payload);
+  renderAll();
+}
+
+async function refreshAllFromApi(button) {
+  const originalDisabled = button.disabled;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+
+  try {
+    await requestJson("/api/refresh-all", { method: "POST" });
+    await loadDashboardFromApi();
+  } finally {
+    button.disabled = originalDisabled;
+    button.removeAttribute("aria-busy");
+  }
+}
+
+function wireRefreshButton() {
+  const refreshButton = document.querySelector(".utility-refresh-button");
+  if (!refreshButton) return;
+  refreshButton.addEventListener("click", async () => {
+    try {
+      await refreshAllFromApi(refreshButton);
+    } catch (error) {
+      console.error("Refresh failed", error);
+    }
+  });
+}
+
+async function bootstrap() {
+  renderAll();
+  wireRefreshButton();
+  renderUtilityDateTime();
+  window.addEventListener("resize", syncRightColumnHeight);
+
+  try {
+    await loadDashboardFromApi();
+  } catch (error) {
+    console.error("API is not available, fallback data is used", error);
+  }
+}
+
+bootstrap();

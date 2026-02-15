@@ -1,2 +1,5 @@
 templates/
 .agents/
+backend/node_modules/
+backend/.wrangler/
+.dev.vars*

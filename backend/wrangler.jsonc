@@ -1,0 +1,34 @@
+{
+  "name": "dashboard-backend",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-03-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "triggers": {
+    "crons": ["0 6 * * *"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "dashboard-db",
+      "database_id": "d91471b8-8705-432d-b592-91eba27b35d7",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    "COMPOSIO_API_BASE_URL": "https://api.composio.dev",
+    "COMPOSIO_EXECUTE_PATH": "/v1/actions/execute",
+    "ALLOWED_ORIGINS": "https://ai-02-01-dashboard.vercel.app/",
+    "SALES_SHEET_NAME": "Sales",
+    "SALES_RANGE": "Sales!A:Z",
+    "SALES_COL_DATE": "Date",
+    "SALES_COL_PRODUCT": "Title",
+    "SALES_COL_QUANTITY": "Count",
+    "SALES_COL_AMOUNT": "",
+    "SALES_COL_UNIT_PRICE": "Cost",
+    "TELEGRAM_CHANNEL_ID": ""
+  }
+}
