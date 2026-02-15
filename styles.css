@@ -26,7 +26,7 @@ body {
   align-items: stretch;
   justify-content: center;
   background-color: #5aa6d6;
-  background-image: url("./templates/backgound.png");
+  background-image: url("./assets/backgound.png");
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;
