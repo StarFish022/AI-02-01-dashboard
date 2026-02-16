@@ -457,12 +457,61 @@ function syncRightColumnHeight() {
   telegramPanel.style.height = `${telegramHeight}px`;
 }
 
+function syncTelegramMessageHeights() {
+  const list = document.getElementById("telegramList");
+  if (!list) return;
+
+  const items = [...list.querySelectorAll(".chat-item")];
+  if (!items.length) return;
+
+  // For the standard 3-post view we keep list without scrollbar.
+  list.style.overflowY = items.length <= 3 ? "hidden" : "auto";
+
+  const listHeight = list.clientHeight;
+  if (listHeight <= 0) return;
+
+  const baseHeight = Math.floor(listHeight / items.length);
+  let remainder = listHeight - baseHeight * items.length;
+
+  for (const item of items) {
+    const extra = remainder > 0 ? 1 : 0;
+    remainder = Math.max(0, remainder - 1);
+    const itemHeight = Math.max(96, baseHeight + extra);
+    item.style.height = `${itemHeight}px`;
+
+    const header = item.querySelector(".chat-header");
+    const title = item.querySelector(".chat-title");
+    const button = item.querySelector(".chat-open");
+    const preview = item.querySelector(".chat-preview");
+    if (!preview) continue;
+
+    const itemStyle = getComputedStyle(item);
+    const paddingY =
+      parseFloat(itemStyle.paddingTop || "0") + parseFloat(itemStyle.paddingBottom || "0");
+    const gap = parseFloat(itemStyle.rowGap || "0");
+
+    const headerH = header ? header.getBoundingClientRect().height : 0;
+    const titleH = title ? title.getBoundingClientRect().height : 0;
+    const buttonH = button ? button.getBoundingClientRect().height : 0;
+    const fixedHeight = paddingY + headerH + titleH + buttonH + gap * 3;
+
+    const previewHeight = Math.max(18, Math.floor(itemHeight - fixedHeight));
+    preview.style.maxHeight = `${previewHeight}px`;
+
+    const lineHeightRaw = parseFloat(getComputedStyle(preview).lineHeight || "18");
+    const lineHeight = Number.isFinite(lineHeightRaw) && lineHeightRaw > 0 ? lineHeightRaw : 18;
+    const lineClamp = Math.max(1, Math.floor(previewHeight / lineHeight));
+    preview.style.setProperty("-webkit-line-clamp", String(lineClamp));
+  }
+}
+
 function renderAll() {
   renderSalesCard(state.dayData);
   renderSalesTable(state.salesRows);
   renderMetrics(state.dayData);
   renderTelegramPosts();
   syncRightColumnHeight();
+  syncTelegramMessageHeights();
 }
 
 function parseNumber(value, fallback = 0) {
@@ -576,7 +625,10 @@ async function bootstrap() {
   renderAll();
   wireRefreshButton();
   renderUtilityDateTime();
-  window.addEventListener("resize", syncRightColumnHeight);
+  window.addEventListener("resize", () => {
+    syncRightColumnHeight();
+    syncTelegramMessageHeights();
+  });
 
   try {
     await loadDashboardFromApi();

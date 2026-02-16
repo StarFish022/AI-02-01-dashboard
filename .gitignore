@@ -3,3 +3,4 @@ templates/
 backend/node_modules/
 backend/.wrangler/
 .dev.vars*
+.vercel

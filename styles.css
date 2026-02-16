@@ -420,9 +420,13 @@ tr:last-child td {
 }
 
 .chat-item {
+  display: flex;
+  flex-direction: column;
+  row-gap: 4px;
   padding: 14px 20px;
   border-bottom: 1px solid var(--border-subtle);
   transition: background 0.16s ease;
+  min-height: 0;
 }
 
 .chat-item:hover {
@@ -446,19 +450,23 @@ tr:last-child td {
 }
 
 .chat-title {
-  margin-top: 6px;
+  margin-top: 0;
   font-size: 16px;
 }
 
 .chat-preview {
-  margin-top: 6px;
+  margin-top: 0;
   color: var(--text-secondary);
   font-size: 14px;
   line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .chat-open {
-  margin-top: 8px;
+  margin-top: auto;
   border: 0;
   background: transparent;
   color: #2b58de;
