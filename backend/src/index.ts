@@ -6,6 +6,7 @@ interface Env {
   COMPOSIO_CONNECTED_ACCOUNT_ID?: string;
   COMPOSIO_CONNECTED_ACCOUNT_ID_YOUTUBE?: string;
   COMPOSIO_CONNECTED_ACCOUNT_ID_SHEETS?: string;
+  COMPOSIO_CONNECTED_ACCOUNT_ID_CALENDAR?: string;
   COMPOSIO_USE_CONNECTED_ACCOUNT?: string;
   COMPOSIO_USER_ID?: string;
   COMPOSIO_ENTITY_ID?: string;
@@ -22,6 +23,8 @@ interface Env {
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHANNEL_ID?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
+  CALENDAR_ID?: string;
+  CALENDAR_TIMEZONE?: string;
   ALLOWED_ORIGINS?: string;
 }
 
@@ -61,6 +64,16 @@ type DashboardResponse = {
       body: string;
       url: string | null;
       createdAt: string;
+    }>;
+  };
+  calendar: {
+    events: Array<{
+      title: string;
+      description: string;
+      location: string | null;
+      startAt: string;
+      endAt: string | null;
+      url: string | null;
     }>;
   };
 };
@@ -142,12 +155,13 @@ function withCors(response: Response, request: Request, env: Env): Response {
 }
 
 async function getDashboardPayload(env: Env): Promise<DashboardResponse> {
-  const [salesRows, salesDaily, topProduct, youtubeDaily, telegramPosts] = await Promise.all([
+  const [salesRows, salesDaily, topProduct, youtubeDaily, telegramPosts, calendarEvents] = await Promise.all([
     getSalesRows(env),
     getSalesDaily(env),
     getTopProduct(env),
     getYoutubeDaily(env),
     getTelegramPosts(env),
+    getCalendarEvents(env),
   ]);
 
   const salesTotals = {
@@ -174,6 +188,9 @@ async function getDashboardPayload(env: Env): Promise<DashboardResponse> {
     },
     telegram: {
       posts: telegramPosts,
+    },
+    calendar: {
+      events: calendarEvents,
     },
   };
 }
@@ -202,6 +219,7 @@ async function refreshAll(
     syncYouTube(env, runId),
     syncSales(env, runId),
     syncTelegramUpdates(env, runId),
+    syncCalendar(env, runId),
   ]);
 
   for (const result of results) {
@@ -460,6 +478,76 @@ async function syncSales(
   } catch (error) {
     return {
       name: "sales",
+      status: "error",
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function syncCalendar(
+  env: Env,
+  runId: string,
+): Promise<{ name: string; status: "ok" | "skipped" | "error"; detail?: string }> {
+  if (!env.COMPOSIO_API_KEY) {
+    return { name: "calendar", status: "skipped", detail: "COMPOSIO_API_KEY not configured" };
+  }
+
+  try {
+    const now = new Date();
+    const max = new Date(now.getTime() + 72 * 60 * 60 * 1000);
+    const timezone = env.CALENDAR_TIMEZONE?.trim() || "Europe/Moscow";
+    const calendarId = env.CALENDAR_ID?.trim() || "primary";
+
+    const payload = await executeComposioAction(
+      env,
+      "GOOGLECALENDAR_EVENTS_LIST",
+      {
+        calendarId,
+        timeMin: now.toISOString(),
+        timeMax: max.toISOString(),
+        singleEvents: true,
+        orderBy: "startTime",
+        showDeleted: false,
+        maxResults: 100,
+        timeZone: timezone,
+      },
+      env.COMPOSIO_CONNECTED_ACCOUNT_ID_CALENDAR || env.COMPOSIO_CONNECTED_ACCOUNT_ID,
+    );
+
+    const events = extractCalendarEventsFromPayload(payload, now.getTime(), max.getTime());
+
+    await env.DB.prepare("DELETE FROM calendar_events_upcoming").run();
+    if (events.length > 0) {
+      const chunks = chunkArray(events, 50);
+      for (const chunk of chunks) {
+        const statements = chunk.map((event) =>
+          env.DB.prepare(
+            `INSERT INTO calendar_events_upcoming
+            (id, run_id, event_id, calendar_id, title, description, location, start_time_utc, end_time_utc, html_link, status, raw_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ).bind(
+            crypto.randomUUID(),
+            runId,
+            event.eventId,
+            event.calendarId,
+            event.title,
+            event.description,
+            event.location,
+            event.startAt,
+            event.endAt,
+            event.url,
+            event.status,
+            JSON.stringify(event.raw),
+          ),
+        );
+        await env.DB.batch(statements);
+      }
+    }
+
+    return { name: "calendar", status: "ok", detail: `Loaded ${events.length} calendar events` };
+  } catch (error) {
+    return {
+      name: "calendar",
       status: "error",
       detail: error instanceof Error ? error.message : String(error),
     };
@@ -909,6 +997,44 @@ async function getTelegramPosts(
   return result.results || [];
 }
 
+async function getCalendarEvents(
+  env: Env,
+): Promise<
+  Array<{
+    title: string;
+    description: string;
+    location: string | null;
+    startAt: string;
+    endAt: string | null;
+    url: string | null;
+  }>
+> {
+  const nowIso = new Date().toISOString();
+  const result = await env.DB.prepare(
+    `SELECT
+      title,
+      description,
+      location,
+      start_time_utc AS startAt,
+      end_time_utc AS endAt,
+      html_link AS url
+    FROM calendar_events_upcoming
+    WHERE start_time_utc >= ?
+    ORDER BY start_time_utc ASC
+    LIMIT 12`,
+  )
+    .bind(nowIso)
+    .all<{
+      title: string;
+      description: string;
+      location: string | null;
+      startAt: string;
+      endAt: string | null;
+      url: string | null;
+    }>();
+  return result.results || [];
+}
+
 function summarizeSales(
   daily: Array<{ date: string; amount: number; count: number }>,
   days: number,
@@ -957,6 +1083,181 @@ function computeWeekOverWeekTrend(daily: Array<{ amount: number }>): number {
     return 0;
   }
   return round2(((current - previous) / previous) * 100);
+}
+
+function extractCalendarEventsFromPayload(
+  payload: unknown,
+  minTimeMs: number,
+  maxTimeMs: number,
+): Array<{
+  eventId: string;
+  calendarId: string | null;
+  title: string;
+  description: string;
+  location: string | null;
+  startAt: string;
+  endAt: string | null;
+  url: string | null;
+  status: string;
+  raw: unknown;
+}> {
+  const candidates: unknown[] = [];
+  if (Array.isArray(payload)) {
+    candidates.push(payload);
+  }
+
+  const root = asRecord(payload);
+  if (root) {
+    candidates.push(root.items, root.events, asRecord(root.data)?.items, asRecord(root.data)?.events);
+  }
+
+  // Fallback: scan every nested array and parse records that look like events.
+  const scanQueue: unknown[] = [payload];
+  while (scanQueue.length > 0) {
+    const current = scanQueue.shift();
+    if (!current) continue;
+    if (Array.isArray(current)) {
+      candidates.push(current);
+      continue;
+    }
+    const record = asRecord(current);
+    if (!record) continue;
+    for (const value of Object.values(record)) {
+      if (value && typeof value === "object") {
+        scanQueue.push(value);
+      }
+    }
+  }
+
+  const dedupe = new Set<string>();
+  const events: Array<{
+    eventId: string;
+    calendarId: string | null;
+    title: string;
+    description: string;
+    location: string | null;
+    startAt: string;
+    endAt: string | null;
+    url: string | null;
+    status: string;
+    raw: unknown;
+  }> = [];
+
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate)) continue;
+    for (const item of candidate) {
+      const parsed = parseCalendarEvent(item);
+      if (!parsed) continue;
+
+      const startMs = Date.parse(parsed.startAt);
+      if (!Number.isFinite(startMs) || startMs < minTimeMs || startMs > maxTimeMs) {
+        continue;
+      }
+      if (parsed.status.toLowerCase() === "cancelled") {
+        continue;
+      }
+
+      const dedupeKey = `${parsed.eventId}|${parsed.startAt}`;
+      if (dedupe.has(dedupeKey)) {
+        continue;
+      }
+      dedupe.add(dedupeKey);
+      events.push(parsed);
+    }
+  }
+
+  events.sort((a, b) => a.startAt.localeCompare(b.startAt));
+  return events;
+}
+
+function parseCalendarEvent(item: unknown): {
+  eventId: string;
+  calendarId: string | null;
+  title: string;
+  description: string;
+  location: string | null;
+  startAt: string;
+  endAt: string | null;
+  url: string | null;
+  status: string;
+  raw: unknown;
+} | null {
+  const record = asRecord(item);
+  if (!record) {
+    return null;
+  }
+
+  const eventId = String(record.id ?? record.event_id ?? "").trim();
+  if (!eventId) {
+    return null;
+  }
+
+  const startAt = normalizeCalendarDateTime(record.start ?? record.start_time ?? record.startTime);
+  if (!startAt) {
+    return null;
+  }
+
+  const endAt = normalizeCalendarDateTime(record.end ?? record.end_time ?? record.endTime);
+  const title = String(record.summary ?? record.title ?? "Без названия").trim() || "Без названия";
+  const description = String(record.description ?? "").trim();
+  const locationRaw = String(record.location ?? "").trim();
+  const status = String(record.status ?? "confirmed").trim() || "confirmed";
+  const urlRaw = String(record.htmlLink ?? record.html_link ?? record.url ?? "").trim();
+
+  const organizer = asRecord(record.organizer);
+  const calendarId = String(
+    record.calendarId ?? record.calendar_id ?? organizer?.email ?? organizer?.id ?? "",
+  ).trim();
+
+  return {
+    eventId,
+    calendarId: calendarId || null,
+    title,
+    description,
+    location: locationRaw || null,
+    startAt,
+    endAt,
+    url: urlRaw || null,
+    status,
+    raw: item,
+  };
+}
+
+function normalizeCalendarDateTime(value: unknown): string | null {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString();
+    }
+    return null;
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+
+  const dateTimeRaw = String(record.dateTime ?? record.datetime ?? "").trim();
+  if (dateTimeRaw) {
+    const dateTime = new Date(dateTimeRaw);
+    if (!Number.isNaN(dateTime.getTime())) {
+      return dateTime.toISOString();
+    }
+  }
+
+  const dateRaw = String(record.date ?? "").trim();
+  if (dateRaw) {
+    const date = new Date(`${dateRaw}T00:00:00Z`);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString();
+    }
+  }
+
+  return null;
 }
 
 function extractSheetMatrix(payload: unknown): unknown[][] {

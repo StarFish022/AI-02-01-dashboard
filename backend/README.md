@@ -3,6 +3,7 @@
 Этот backend собирает данные из:
 - YouTube через прямой API-вызов к Composio (`YOUTUBE_GET_CHANNEL_STATISTICS`)
 - Google Sheets (продажи) через прямой API-вызов к Composio (`GOOGLESHEETS_BATCH_GET`)
+- Google Calendar (встречи на ближайшие 72 часа) через прямой API-вызов к Composio (`GOOGLECALENDAR_EVENTS_LIST`)
 - Telegram-канал через Telegram Bot API (`getUpdates`) и/или webhook
 
 ## Что реализовано
@@ -40,6 +41,7 @@ npx wrangler secret put COMPOSIO_CONNECTED_ACCOUNT_ID
 npx wrangler secret put SALES_SPREADSHEET_ID
 npx wrangler secret put TELEGRAM_BOT_TOKEN
 npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
+npx wrangler secret put COMPOSIO_CONNECTED_ACCOUNT_ID_CALENDAR
 ```
 
 6. Локально:
@@ -63,6 +65,7 @@ npx wrangler deploy
 - `COMPOSIO_CONNECTED_ACCOUNT_ID`
 - `COMPOSIO_CONNECTED_ACCOUNT_ID_YOUTUBE`
 - `COMPOSIO_CONNECTED_ACCOUNT_ID_SHEETS`
+- `COMPOSIO_CONNECTED_ACCOUNT_ID_CALENDAR`
 - `COMPOSIO_USE_CONNECTED_ACCOUNT` (по умолчанию `false`; включать только если точно нужен execute через конкретный connected account)
 - `COMPOSIO_USER_ID` (рекомендуется заполнить; если пусто, backend пытается определить автоматически)
 - `COMPOSIO_ENTITY_ID` (legacy fallback, если используется старый entity context)
@@ -73,6 +76,8 @@ npx wrangler deploy
 - `YOUTUBE_CHANNEL_ID` или `YOUTUBE_CHANNEL_HANDLE`
 - `TELEGRAM_CHANNEL_ID`
 - `TELEGRAM_WEBHOOK_SECRET`
+- `CALENDAR_ID` (обычно `primary`)
+- `CALENDAR_TIMEZONE` (например `Europe/Moscow`)
 
 Для вашей структуры таблицы со скриншота:
 - `SALES_COL_PRODUCT=Title`

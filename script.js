@@ -80,11 +80,31 @@ const fallbackTelegramPosts = [
   },
 ];
 
+const fallbackCalendarEvents = [
+  {
+    title: "Планерка по дашборду",
+    description: "Согласование метрик и источников данных.",
+    location: "Google Meet",
+    startAt: new Date(nowMs + 3 * 60 * 60 * 1000).toISOString(),
+    endAt: new Date(nowMs + 4 * 60 * 60 * 1000).toISOString(),
+    url: null,
+  },
+  {
+    title: "Разбор контента YouTube",
+    description: "Проверка динамики просмотров и подписчиков.",
+    location: "Онлайн",
+    startAt: new Date(nowMs + 26 * 60 * 60 * 1000).toISOString(),
+    endAt: new Date(nowMs + 27 * 60 * 60 * 1000).toISOString(),
+    url: null,
+  },
+];
+
 const state = {
   salesRows: [...fallbackSalesRows],
   dayData: getSalesByDay(fallbackSalesRows),
   chartData: { ...fallbackChartData },
   telegramPosts: [...fallbackTelegramPosts],
+  calendarEvents: [...fallbackCalendarEvents],
   youtubeCurrent: {
     views: 0,
     subscribers: 0,
@@ -419,6 +439,95 @@ function renderTelegramPosts() {
   });
 }
 
+function formatCalendarTimeRange(startIso, endIso) {
+  const startDate = new Date(startIso);
+  if (Number.isNaN(startDate.getTime())) {
+    return "Время не указано";
+  }
+
+  const startDatePart = startDate.toLocaleDateString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+  });
+  const startTimePart = startDate.toLocaleTimeString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  if (!endIso) {
+    return `${startDatePart} ${startTimePart}`;
+  }
+
+  const endDate = new Date(endIso);
+  if (Number.isNaN(endDate.getTime())) {
+    return `${startDatePart} ${startTimePart}`;
+  }
+
+  const endDatePart = endDate.toLocaleDateString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+  });
+  const endTimePart = endDate.toLocaleTimeString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  if (startDatePart === endDatePart) {
+    return `${startDatePart} ${startTimePart} - ${endTimePart}`;
+  }
+  return `${startDatePart} ${startTimePart} - ${endDatePart} ${endTimePart}`;
+}
+
+function renderCalendarEvents() {
+  const host = document.getElementById("calendarEventsList");
+  if (!host) return;
+
+  host.innerHTML = "";
+  if (!state.calendarEvents.length) {
+    const empty = document.createElement("p");
+    empty.className = "calendar-empty";
+    empty.textContent = "На ближайшие 72 часа событий нет";
+    host.appendChild(empty);
+    return;
+  }
+
+  state.calendarEvents.forEach((event) => {
+    const article = document.createElement("article");
+    article.className = "calendar-item";
+
+    const title = document.createElement("h3");
+    title.textContent = event.title || "Без названия";
+    article.appendChild(title);
+
+    const time = document.createElement("p");
+    time.className = "calendar-item-time";
+    time.textContent = formatCalendarTimeRange(event.startAt, event.endAt);
+    article.appendChild(time);
+
+    const metaParts = [];
+    if (event.location) metaParts.push(event.location);
+    if (event.description) metaParts.push(event.description);
+    if (metaParts.length) {
+      const meta = document.createElement("p");
+      meta.className = "calendar-item-meta";
+      meta.textContent = metaParts.join(" • ");
+      article.appendChild(meta);
+    }
+
+    if (event.url) {
+      const link = document.createElement("a");
+      link.className = "calendar-item-link";
+      link.href = event.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = "Открыть событие";
+      article.appendChild(link);
+    }
+
+    host.appendChild(article);
+  });
+}
+
 function renderUtilityDateTime() {
   const dateNode = document.getElementById("utilityDate");
   const timeNode = document.getElementById("utilityTime");
@@ -443,12 +552,21 @@ function renderUtilityDateTime() {
 
 function syncRightColumnHeight() {
   const salesPanel = document.querySelector(".section-main");
+  const calendarPanel = document.querySelector(".section-calendar");
   const rightStack = document.querySelector(".section-right-stack");
   const utilityPanel = document.querySelector(".section-utility");
   const telegramPanel = document.querySelector(".section-telegram");
-  if (!salesPanel || !rightStack || !utilityPanel || !telegramPanel) return;
+  if (!salesPanel || !calendarPanel || !rightStack || !utilityPanel || !telegramPanel) return;
+
+  if (window.matchMedia("(max-width: 980px)").matches) {
+    calendarPanel.style.height = "";
+    rightStack.style.height = "";
+    telegramPanel.style.height = "";
+    return;
+  }
 
   const totalHeight = Math.round(salesPanel.getBoundingClientRect().height);
+  calendarPanel.style.height = `${totalHeight}px`;
   rightStack.style.height = `${totalHeight}px`;
 
   const gap = parseFloat(getComputedStyle(rightStack).rowGap || "0");
@@ -510,6 +628,7 @@ function renderAll() {
   renderSalesTable(state.salesRows);
   renderMetrics(state.dayData);
   renderTelegramPosts();
+  renderCalendarEvents();
   syncRightColumnHeight();
   syncTelegramMessageHeights();
 }
@@ -574,6 +693,21 @@ function setStateFromApi(payload) {
         url: post.url ? String(post.url) : null,
       };
     });
+  }
+
+  const calendarEvents = payload?.calendar?.events;
+  if (Array.isArray(calendarEvents)) {
+    state.calendarEvents = calendarEvents
+      .map((event) => ({
+        title: String(event.title ?? "Без названия"),
+        description: String(event.description ?? "").trim(),
+        location: event.location ? String(event.location) : null,
+        startAt: String(event.startAt ?? ""),
+        endAt: event.endAt ? String(event.endAt) : null,
+        url: event.url ? String(event.url) : null,
+      }))
+      .filter((event) => event.startAt)
+      .sort((a, b) => String(a.startAt).localeCompare(String(b.startAt)));
   }
 }
 

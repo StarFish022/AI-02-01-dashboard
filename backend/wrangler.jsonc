@@ -33,6 +33,8 @@
     "SALES_COL_UNIT_PRICE": "Cost",
     "YOUTUBE_CHANNEL_ID": "",
     "YOUTUBE_CHANNEL_HANDLE": "",
-    "TELEGRAM_CHANNEL_ID": ""
+    "TELEGRAM_CHANNEL_ID": "",
+    "CALENDAR_ID": "primary",
+    "CALENDAR_TIMEZONE": "Europe/Moscow"
   }
 }
