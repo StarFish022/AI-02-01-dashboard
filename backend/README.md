@@ -63,10 +63,14 @@ npx wrangler deploy
 - `COMPOSIO_CONNECTED_ACCOUNT_ID`
 - `COMPOSIO_CONNECTED_ACCOUNT_ID_YOUTUBE`
 - `COMPOSIO_CONNECTED_ACCOUNT_ID_SHEETS`
-- `COMPOSIO_API_BASE_URL` (по умолчанию `https://api.composio.dev`)
-- `COMPOSIO_EXECUTE_PATH` (по умолчанию `/v1/actions/execute`)
+- `COMPOSIO_USE_CONNECTED_ACCOUNT` (по умолчанию `false`; включать только если точно нужен execute через конкретный connected account)
+- `COMPOSIO_USER_ID` (рекомендуется заполнить; если пусто, backend пытается определить автоматически)
+- `COMPOSIO_ENTITY_ID` (legacy fallback, если используется старый entity context)
+- `COMPOSIO_API_BASE_URL` (по умолчанию `https://backend.composio.dev`)
+- `COMPOSIO_EXECUTE_PATH` (по умолчанию `/api/v3/tools/execute`)
 - `ALLOWED_ORIGINS` (например `https://your-frontend.vercel.app`)
 - `SALES_SHEET_NAME`, `SALES_RANGE`, `SALES_COL_*`
+- `YOUTUBE_CHANNEL_ID` или `YOUTUBE_CHANNEL_HANDLE`
 - `TELEGRAM_CHANNEL_ID`
 - `TELEGRAM_WEBHOOK_SECRET`
 
@@ -76,6 +80,8 @@ npx wrangler deploy
 - `SALES_COL_QUANTITY=Count`
 - `SALES_COL_DATE=Date`
 - `SALES_COL_AMOUNT=` (оставить пустым, сумма будет считаться как `Cost * Count`)
+- `SALES_SHEET_NAME=sales`
+- `SALES_RANGE=sales!A:Z`
 
 ## Что нужно для Telegram-канала
 

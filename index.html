@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="dashboard-api-base-url" content="" />
+    <!--  <meta name="dashboard-api-base-url" content="https://dashboard-backend.i-kolikov.workers.dev/" /> -->
+    <meta name="dashboard-api-base-url" content="http://127.0.0.1:8787" />
     <title>Dashboard</title>
     <link rel="icon" type="image/png" href="./assets/logo-starfish-favicon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -47,8 +48,8 @@
             <p class="metric-label">Продажи: количество</p>
             <p class="metric-big" id="salesCountToday">0</p>
             <p class="metric-periods">
-              Неделя: <strong id="salesCountWeek">0</strong> • Месяц:
-              <strong id="salesCountMonth">0</strong>
+              Неделя: <strong id="salesCountWeek">0</strong><br />
+              Месяц: <strong id="salesCountMonth">0</strong>
             </p>
             <div class="mini-chart" data-chart="salesCount"></div>
           </article>
@@ -57,8 +58,8 @@
             <p class="metric-label">Продажи: сумма</p>
             <p class="metric-big" id="salesAmountToday">$0</p>
             <p class="metric-periods">
-              Неделя: <strong id="salesAmountWeek">$0</strong> • Месяц:
-              <strong id="salesAmountMonth">$0</strong>
+              Неделя: <strong id="salesAmountWeek">$0</strong><br />
+              Месяц: <strong id="salesAmountMonth">$0</strong>
             </p>
             <div class="mini-chart" data-chart="salesAmount"></div>
           </article>
@@ -66,7 +67,7 @@
           <article class="metric-card">
             <p class="metric-label">Топ товар месяца</p>
             <p class="metric-big metric-product" id="topProductName">-</p>
-            <p class="metric-periods" id="topProductStats">Продано: 0 • Выручка: $0</p>
+            <p class="metric-periods" id="topProductStats">Продано: 0<br />Выручка: $0</p>
           </article>
         </section>
 
@@ -90,6 +91,10 @@
               Telegram
               <span class="badge">3 post</span>
             </h2>
+            <p class="telegram-periods">
+              Неделя: <strong id="telegramWeekCount">0</strong><br />
+              Месяц: <strong id="telegramMonthCount">0</strong>
+            </p>
             <div class="chat-list" id="telegramList"></div>
           </section>
         </section>
@@ -99,8 +104,8 @@
             <p class="metric-label">YouTube просмотры</p>
             <p class="metric-big" id="ytViewsToday">0</p>
             <p class="metric-periods">
-              Неделя: <strong id="ytViewsWeek">0</strong> • Месяц:
-              <strong id="ytViewsMonth">0</strong>
+              Неделя: <strong id="ytViewsWeek">0</strong><br />
+              Месяц: <strong id="ytViewsMonth">0</strong>
             </p>
             <div class="mini-chart" data-chart="youtubeViews"></div>
           </article>
@@ -109,8 +114,8 @@
             <p class="metric-label">YouTube подписчики</p>
             <p class="metric-big" id="ytSubsToday">0</p>
             <p class="metric-periods">
-              Неделя: <strong id="ytSubsWeek">0</strong> • Месяц:
-              <strong id="ytSubsMonth">0</strong>
+              Неделя: <strong id="ytSubsWeek">0</strong><br />
+              Месяц: <strong id="ytSubsMonth">0</strong>
             </p>
             <div class="mini-chart" data-chart="youtubeSubscribers"></div>
           </article>

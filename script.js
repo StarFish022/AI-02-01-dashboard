@@ -28,6 +28,8 @@ const fallbackChartData = {
   youtubeSubscribers: [82, 94, 88, 101, 97, 113, 122, 118, 136, 149, 171, 212],
 };
 
+const nowMs = Date.now();
+
 const fallbackTelegramPosts = [
   {
     channel: "YouTube Creator RU",
@@ -43,6 +45,7 @@ const fallbackTelegramPosts = [
 
 В конце добавили CTA на подписку и карточку на следующее видео.`,
     url: null,
+    createdAt: new Date(nowMs - 2 * 24 * 60 * 60 * 1000).toISOString(),
   },
   {
     channel: "Ecom Analytics",
@@ -58,6 +61,7 @@ const fallbackTelegramPosts = [
 
 Шаблон таблицы приложен в закрепе.`,
     url: null,
+    createdAt: new Date(nowMs - 8 * 24 * 60 * 60 * 1000).toISOString(),
   },
   {
     channel: "Telegram Product Notes",
@@ -72,6 +76,7 @@ const fallbackTelegramPosts = [
 
 Главное: фиксировать тему поста и формат в отдельной таблице, чтобы видеть повторяемые паттерны.`,
     url: null,
+    createdAt: new Date(nowMs - 20 * 24 * 60 * 60 * 1000).toISOString(),
   },
 ];
 
@@ -80,6 +85,10 @@ const state = {
   dayData: getSalesByDay(fallbackSalesRows),
   chartData: { ...fallbackChartData },
   telegramPosts: [...fallbackTelegramPosts],
+  youtubeCurrent: {
+    views: 0,
+    subscribers: 0,
+  },
   dashboard: null,
 };
 
@@ -103,6 +112,27 @@ function fmtNumber(value) {
 
 function fmtMoney(value) {
   return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function sumLast(values, size, offset = 0) {
+  const end = values.length - offset;
+  const start = Math.max(0, end - size);
+  return values.slice(start, end).reduce((acc, item) => acc + item, 0);
+}
+
+function computeRelativePct(current, previous) {
+  if (previous <= 0) {
+    return current > 0 ? null : 0;
+  }
+  return ((current - previous) / previous) * 100;
+}
+
+function fmtSignedPct(value) {
+  if (value === null) {
+    return "н/д";
+  }
+  const sign = value >= 0 ? "+" : "";
+  return `${sign}${value.toFixed(1)}%`;
 }
 
 function dateLabel(dateString) {
@@ -195,7 +225,15 @@ function renderSalesCard(dayData) {
 function renderSalesTable(rows) {
   const body = document.getElementById("salesTableBody");
   body.innerHTML = "";
-  rows.slice(0, 7).forEach((row) => {
+  const sortedRows = [...rows].sort((a, b) => {
+    const dateOrder = String(b.date).localeCompare(String(a.date));
+    if (dateOrder !== 0) {
+      return dateOrder;
+    }
+    return amountForRow(b) - amountForRow(a);
+  });
+
+  sortedRows.slice(0, 7).forEach((row) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${row.title}</td>
@@ -234,21 +272,36 @@ function renderMetrics(dayData) {
   const ytViewsSeries = state.chartData.youtubeViews;
   const ytSubsSeries = state.chartData.youtubeSubscribers;
 
+  const ytViewsCurrent = state.youtubeCurrent.views || 0;
+  const ytSubsCurrent = state.youtubeCurrent.subscribers || 0;
+
   const ytViewsToday = youtubeTotals?.views?.today ?? ytViewsSeries.at(-1) ?? 0;
   const ytViewsWeek = youtubeTotals?.views?.week ?? ytViewsSeries.slice(-7).reduce((a, b) => a + b, 0);
   const ytViewsMonth = youtubeTotals?.views?.month ?? ytViewsSeries.slice(-30).reduce((a, b) => a + b, 0);
+  const ytViewsPrevWeek = sumLast(ytViewsSeries, 7, 7);
+  const ytViewsPrevMonth = sumLast(ytViewsSeries, 30, 30);
+  const ytViewsWeekPct = computeRelativePct(ytViewsWeek, ytViewsPrevWeek);
+  const ytViewsMonthPct = computeRelativePct(ytViewsMonth, ytViewsPrevMonth);
 
   const ytSubsToday = youtubeTotals?.subscribers?.today ?? ytSubsSeries.at(-1) ?? 0;
   const ytSubsWeek = youtubeTotals?.subscribers?.week ?? ytSubsSeries.slice(-7).reduce((a, b) => a + b, 0);
   const ytSubsMonth = youtubeTotals?.subscribers?.month ?? ytSubsSeries.slice(-30).reduce((a, b) => a + b, 0);
+  const ytSubsPrevWeek = sumLast(ytSubsSeries, 7, 7);
+  const ytSubsPrevMonth = sumLast(ytSubsSeries, 30, 30);
+  const ytSubsWeekPct = computeRelativePct(ytSubsWeek, ytSubsPrevWeek);
+  const ytSubsMonthPct = computeRelativePct(ytSubsMonth, ytSubsPrevMonth);
 
-  document.getElementById("ytViewsToday").textContent = fmtNumber(ytViewsToday);
-  document.getElementById("ytViewsWeek").textContent = fmtNumber(ytViewsWeek);
-  document.getElementById("ytViewsMonth").textContent = fmtNumber(ytViewsMonth);
+  const ytViewsTodayNode = document.getElementById("ytViewsToday");
+  ytViewsTodayNode.textContent = fmtNumber(ytViewsCurrent);
+  ytViewsTodayNode.title = `Сегодня +${fmtNumber(ytViewsToday)}`;
+  document.getElementById("ytViewsWeek").textContent = `+${fmtNumber(ytViewsWeek)} · ${fmtSignedPct(ytViewsWeekPct)}`;
+  document.getElementById("ytViewsMonth").textContent = `+${fmtNumber(ytViewsMonth)} · ${fmtSignedPct(ytViewsMonthPct)}`;
 
-  document.getElementById("ytSubsToday").textContent = `+${fmtNumber(ytSubsToday)}`;
-  document.getElementById("ytSubsWeek").textContent = `+${fmtNumber(ytSubsWeek)}`;
-  document.getElementById("ytSubsMonth").textContent = `+${fmtNumber(ytSubsMonth)}`;
+  const ytSubsTodayNode = document.getElementById("ytSubsToday");
+  ytSubsTodayNode.textContent = fmtNumber(ytSubsCurrent);
+  ytSubsTodayNode.title = `Сегодня +${fmtNumber(ytSubsToday)}`;
+  document.getElementById("ytSubsWeek").textContent = `+${fmtNumber(ytSubsWeek)} · ${fmtSignedPct(ytSubsWeekPct)}`;
+  document.getElementById("ytSubsMonth").textContent = `+${fmtNumber(ytSubsMonth)} · ${fmtSignedPct(ytSubsMonthPct)}`;
 
   document.getElementById("salesCountToday").textContent = fmtNumber(countToday);
   document.getElementById("salesCountWeek").textContent = fmtNumber(countWeek);
@@ -259,10 +312,12 @@ function renderMetrics(dayData) {
   document.getElementById("salesAmountMonth").textContent = fmtMoney(amountMonth);
 
   const apiTop = state.dashboard?.sales?.topProduct;
+  const topProductNameNode = document.getElementById("topProductName");
+  const topProductStatsNode = document.getElementById("topProductStats");
   if (apiTop && apiTop.name) {
-    document.getElementById("topProductName").textContent = apiTop.name;
-    document.getElementById("topProductStats").innerHTML =
-      `Продано: <strong>${fmtNumber(apiTop.count)}</strong> • Выручка: <strong>${fmtMoney(apiTop.amount)}</strong>`;
+    topProductNameNode.textContent = apiTop.name;
+    topProductStatsNode.innerHTML =
+      `Продано: <strong>${fmtNumber(apiTop.count)}</strong><br>Выручка: <strong>${fmtMoney(apiTop.amount)}</strong>`;
   } else {
     const byProduct = new Map();
     state.salesRows.forEach((row) => {
@@ -277,9 +332,13 @@ function renderMetrics(dayData) {
     const top = sorted[0];
     if (top) {
       const [name, stats] = top;
-      document.getElementById("topProductName").textContent = name;
-      document.getElementById("topProductStats").innerHTML =
-        `Продано: <strong>${fmtNumber(stats.count)}</strong> • Выручка: <strong>${fmtMoney(stats.amount)}</strong>`;
+      topProductNameNode.textContent = name;
+      topProductStatsNode.innerHTML =
+        `Продано: <strong>${fmtNumber(stats.count)}</strong><br>Выручка: <strong>${fmtMoney(stats.amount)}</strong>`;
+    } else {
+      topProductNameNode.textContent = "-";
+      topProductStatsNode.innerHTML =
+        `Продано: <strong>0</strong><br>Выручка: <strong>${fmtMoney(0)}</strong>`;
     }
   }
 
@@ -307,9 +366,37 @@ function renderTelegramPosts() {
   const dialogChannel = document.getElementById("dialogChannel");
   const dialogBody = document.getElementById("dialogBody");
   const badge = document.querySelector(".section-telegram .badge");
+  const weekNode = document.getElementById("telegramWeekCount");
+  const monthNode = document.getElementById("telegramMonthCount");
 
   if (badge) {
     badge.textContent = `${state.telegramPosts.length} post`;
+  }
+
+  const now = Date.now();
+  const weekSince = now - 7 * 24 * 60 * 60 * 1000;
+  const monthSince = now - 30 * 24 * 60 * 60 * 1000;
+  let weekCount = 0;
+  let monthCount = 0;
+
+  for (const post of state.telegramPosts) {
+    const createdAtMs = Date.parse(post.createdAt || "");
+    if (!Number.isFinite(createdAtMs)) {
+      continue;
+    }
+    if (createdAtMs >= monthSince) {
+      monthCount += 1;
+    }
+    if (createdAtMs >= weekSince) {
+      weekCount += 1;
+    }
+  }
+
+  if (weekNode) {
+    weekNode.textContent = fmtNumber(weekCount);
+  }
+  if (monthNode) {
+    monthNode.textContent = fmtNumber(monthCount);
   }
 
   list.innerHTML = "";
@@ -372,7 +459,7 @@ function syncRightColumnHeight() {
 
 function renderAll() {
   renderSalesCard(state.dayData);
-  renderSalesTable([...state.salesRows].reverse());
+  renderSalesTable(state.salesRows);
   renderMetrics(state.dayData);
   renderTelegramPosts();
   syncRightColumnHeight();
@@ -387,7 +474,7 @@ function setStateFromApi(payload) {
   state.dashboard = payload || null;
 
   const salesRows = payload?.sales?.rows;
-  if (Array.isArray(salesRows) && salesRows.length) {
+  if (Array.isArray(salesRows)) {
     state.salesRows = salesRows
       .map((row) => ({
         title: String(row.title ?? ""),
@@ -399,7 +486,7 @@ function setStateFromApi(payload) {
   }
 
   const daily = payload?.sales?.daily;
-  if (Array.isArray(daily) && daily.length) {
+  if (Array.isArray(daily)) {
     state.dayData = daily
       .map((row) => ({
         date: String(row.date ?? ""),
@@ -412,9 +499,13 @@ function setStateFromApi(payload) {
   }
 
   const youtubeDaily = payload?.youtube?.daily;
-  if (Array.isArray(youtubeDaily) && youtubeDaily.length) {
+  if (Array.isArray(youtubeDaily)) {
     state.chartData.youtubeViews = youtubeDaily.map((row) => parseNumber(row.viewsDelta, 0));
     state.chartData.youtubeSubscribers = youtubeDaily.map((row) => parseNumber(row.subscribersDelta, 0));
+
+    const latest = youtubeDaily.at(-1) || {};
+    state.youtubeCurrent.views = parseNumber(latest.views, 0);
+    state.youtubeCurrent.subscribers = parseNumber(latest.subscribers, 0);
   }
 
   const telegramPosts = payload?.telegram?.posts;
@@ -430,6 +521,7 @@ function setStateFromApi(payload) {
         excerpt: String(post.excerpt ?? ""),
         body: String(post.body ?? ""),
         time,
+        createdAt: createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toISOString() : null,
         url: post.url ? String(post.url) : null,
       };
     });

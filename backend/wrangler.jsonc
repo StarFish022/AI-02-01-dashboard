@@ -19,16 +19,20 @@
     }
   ],
   "vars": {
-    "COMPOSIO_API_BASE_URL": "https://api.composio.dev",
-    "COMPOSIO_EXECUTE_PATH": "/v1/actions/execute",
-    "ALLOWED_ORIGINS": "https://ai-02-01-dashboard.vercel.app/",
-    "SALES_SHEET_NAME": "Sales",
-    "SALES_RANGE": "Sales!A:Z",
+    "COMPOSIO_API_BASE_URL": "https://backend.composio.dev",
+    "COMPOSIO_EXECUTE_PATH": "/api/v3/tools/execute",
+    "COMPOSIO_USE_CONNECTED_ACCOUNT": "false",
+    "COMPOSIO_USER_ID": "",
+    "ALLOWED_ORIGINS": "https://ai-02-01-dashboard.vercel.app",
+    "SALES_SHEET_NAME": "sales",
+    "SALES_RANGE": "sales!A:Z",
     "SALES_COL_DATE": "Date",
     "SALES_COL_PRODUCT": "Title",
     "SALES_COL_QUANTITY": "Count",
     "SALES_COL_AMOUNT": "",
     "SALES_COL_UNIT_PRICE": "Cost",
+    "YOUTUBE_CHANNEL_ID": "",
+    "YOUTUBE_CHANNEL_HANDLE": "",
     "TELEGRAM_CHANNEL_ID": ""
   }
 }

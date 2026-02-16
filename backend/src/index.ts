@@ -6,6 +6,9 @@ interface Env {
   COMPOSIO_CONNECTED_ACCOUNT_ID?: string;
   COMPOSIO_CONNECTED_ACCOUNT_ID_YOUTUBE?: string;
   COMPOSIO_CONNECTED_ACCOUNT_ID_SHEETS?: string;
+  COMPOSIO_USE_CONNECTED_ACCOUNT?: string;
+  COMPOSIO_USER_ID?: string;
+  COMPOSIO_ENTITY_ID?: string;
   SALES_SPREADSHEET_ID?: string;
   SALES_SHEET_NAME?: string;
   SALES_RANGE?: string;
@@ -14,6 +17,8 @@ interface Env {
   SALES_COL_QUANTITY?: string;
   SALES_COL_AMOUNT?: string;
   SALES_COL_UNIT_PRICE?: string;
+  YOUTUBE_CHANNEL_ID?: string;
+  YOUTUBE_CHANNEL_HANDLE?: string;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHANNEL_ID?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
@@ -61,6 +66,7 @@ type DashboardResponse = {
 };
 
 const JSON_HEADERS: HeadersInit = { "content-type": "application/json; charset=utf-8" };
+const composioIdentityCache = new Map<string, { userId?: string; entityId?: string }>();
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -231,10 +237,28 @@ async function syncYouTube(
   }
 
   try {
+    let channelId = env.YOUTUBE_CHANNEL_ID?.trim() || "";
+    if (!channelId && env.YOUTUBE_CHANNEL_HANDLE?.trim()) {
+      const resolvePayload = await executeComposioAction(
+        env,
+        "YOUTUBE_GET_CHANNEL_ID_BY_HANDLE",
+        { channel_handle: env.YOUTUBE_CHANNEL_HANDLE.trim() },
+        env.COMPOSIO_CONNECTED_ACCOUNT_ID_YOUTUBE || env.COMPOSIO_CONNECTED_ACCOUNT_ID,
+      );
+      channelId = findYoutubeChannelId(resolvePayload);
+    }
+    if (!channelId) {
+      return {
+        name: "youtube",
+        status: "error",
+        detail: "Set YOUTUBE_CHANNEL_ID or YOUTUBE_CHANNEL_HANDLE in backend/.dev.vars",
+      };
+    }
+
     const payload = await executeComposioAction(
       env,
       "YOUTUBE_GET_CHANNEL_STATISTICS",
-      { mine: true, part: "statistics,snippet" },
+      { id: channelId, part: "statistics,snippet" },
       env.COMPOSIO_CONNECTED_ACCOUNT_ID_YOUTUBE || env.COMPOSIO_CONNECTED_ACCOUNT_ID,
     );
 
@@ -612,22 +636,39 @@ async function executeComposioAction(
     throw new Error("COMPOSIO_API_KEY is required");
   }
 
-  const base = (env.COMPOSIO_API_BASE_URL || "https://api.composio.dev").replace(/\/+$/, "");
-  const path = env.COMPOSIO_EXECUTE_PATH || "/v1/actions/execute";
-  const url = `${base}${path.startsWith("/") ? "" : "/"}${path}`;
+  // Composio REST v3:
+  // POST /api/v3/tools/execute/{tool_slug}
+  // headers: x-api-key
+  // body: { connected_account_id, arguments }
+  const base = (env.COMPOSIO_API_BASE_URL || "https://backend.composio.dev").replace(/\/+$/, "");
+  const path = (env.COMPOSIO_EXECUTE_PATH || "/api/v3/tools/execute").replace(/\/+$/, "");
+  const url = `${base}${path.startsWith("/") ? "" : "/"}${path}/${encodeURIComponent(action)}`;
 
   const body: Record<string, unknown> = {
-    action,
-    input,
+    arguments: input,
   };
-  if (connectedAccountId) {
-    body.connectedAccountId = connectedAccountId;
+  const useConnectedAccount = (env.COMPOSIO_USE_CONNECTED_ACCOUNT || "").trim().toLowerCase() === "true";
+  if (connectedAccountId && useConnectedAccount) {
+    body.connected_account_id = connectedAccountId;
+  }
+  // Some projects require identity context with connected accounts.
+  // Resolve it from connected account first, then fallback to env vars.
+  const resolvedIdentity = await resolveComposioIdentity(
+    env,
+    useConnectedAccount ? connectedAccountId : undefined,
+  );
+  const composioUserId = resolvedIdentity.userId || env.COMPOSIO_USER_ID?.trim();
+  const composioEntityId = resolvedIdentity.entityId || env.COMPOSIO_ENTITY_ID?.trim();
+  if (composioUserId) {
+    body.user_id = composioUserId;
+  } else if (composioEntityId) {
+    body.entity_id = composioEntityId;
   }
 
   const response = await fetch(url, {
     method: "POST",
     headers: {
-      authorization: `Bearer ${env.COMPOSIO_API_KEY}`,
+      "x-api-key": env.COMPOSIO_API_KEY,
       "content-type": "application/json",
     },
     body: JSON.stringify(body),
@@ -635,6 +676,33 @@ async function executeComposioAction(
 
   const rawText = await response.text();
   if (!response.ok) {
+    let parsedError: Record<string, unknown> | null = null;
+    try {
+      const json = JSON.parse(rawText) as Record<string, unknown>;
+      parsedError = asRecord(json.error) || json;
+    } catch {
+      parsedError = null;
+    }
+
+    if (parsedError) {
+      const slug = String(parsedError.slug || "");
+      const message = String(parsedError.message || "Composio request failed");
+      const requestId = String(parsedError.request_id || "");
+      if (slug === "ActionExecute_ConnectedAccountEntityIdRequired") {
+        throw new Error(
+          `Composio requires identity context for connected account. ` +
+            `Set COMPOSIO_USER_ID (recommended) or COMPOSIO_ENTITY_ID in backend/.dev.vars` +
+            (requestId ? `; request_id=${requestId}` : ""),
+        );
+      }
+      throw new Error(
+        `${message}` +
+          (slug ? `; slug=${slug}` : "") +
+          (requestId ? `; request_id=${requestId}` : "") +
+          `; status=${response.status}`,
+      );
+    }
+
     throw new Error(`Composio request failed (${response.status}): ${rawText}`);
   }
 
@@ -647,10 +715,51 @@ async function executeComposioAction(
 
   const record = asRecord(parsed);
   if (record?.successful === false) {
-    throw new Error(String(record.error || "Composio action execution failed"));
+    const logId = typeof record.log_id === "string" ? `; log_id=${record.log_id}` : "";
+    throw new Error(String(record.error || "Composio action execution failed") + logId);
   }
 
   return record?.data ?? parsed;
+}
+
+async function resolveComposioIdentity(
+  env: Env,
+  connectedAccountId?: string,
+): Promise<{ userId?: string; entityId?: string }> {
+  if (!connectedAccountId || !env.COMPOSIO_API_KEY) {
+    return {};
+  }
+
+  const cached = composioIdentityCache.get(connectedAccountId);
+  if (cached) {
+    return cached;
+  }
+
+  const base = (env.COMPOSIO_API_BASE_URL || "https://backend.composio.dev").replace(/\/+$/, "");
+  const url = `${base}/api/v3/connected_accounts/${encodeURIComponent(connectedAccountId)}`;
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { "x-api-key": env.COMPOSIO_API_KEY },
+    });
+    if (!response.ok) {
+      return {};
+    }
+
+    const payload = (await response.json()) as Record<string, unknown>;
+    const root = asRecord(payload.data) || payload;
+    const userId =
+      typeof root.user_id === "string" && root.user_id.trim() ? root.user_id.trim() : undefined;
+    const entityId =
+      typeof root.entity_id === "string" && root.entity_id.trim() ? root.entity_id.trim() : undefined;
+
+    const resolved = { userId, entityId };
+    composioIdentityCache.set(connectedAccountId, resolved);
+    return resolved;
+  } catch {
+    return {};
+  }
 }
 
 async function getSalesRows(
@@ -659,7 +768,7 @@ async function getSalesRows(
   const result = await env.DB.prepare(
     `SELECT product_name AS title, unit_price AS cost, quantity AS count, sale_date_msk AS date
     FROM sales_rows_raw
-    ORDER BY sale_date_msk DESC, row_index DESC
+    ORDER BY sale_date_msk DESC, amount DESC, row_index DESC
     LIMIT 500`,
   ).all<{ title: string; cost: number; count: number; date: string }>();
   return result.results || [];
@@ -709,25 +818,33 @@ async function getYoutubeDaily(
         snapshot_date_msk,
         view_count,
         subscriber_count,
-        ROW_NUMBER() OVER (PARTITION BY snapshot_date_msk ORDER BY snapshot_at_utc DESC) AS rn
+        ROW_NUMBER() OVER (PARTITION BY snapshot_date_msk ORDER BY snapshot_at_utc ASC) AS rn_first,
+        ROW_NUMBER() OVER (PARTITION BY snapshot_date_msk ORDER BY snapshot_at_utc DESC) AS rn_last
       FROM youtube_snapshots
     ),
-    latest AS (
+    daily AS (
       SELECT
         snapshot_date_msk AS date,
-        view_count AS views,
-        subscriber_count AS subscribers
+        MAX(CASE WHEN rn_first = 1 THEN view_count END) AS views_open,
+        MAX(CASE WHEN rn_first = 1 THEN subscriber_count END) AS subscribers_open,
+        MAX(CASE WHEN rn_last = 1 THEN view_count END) AS views,
+        MAX(CASE WHEN rn_last = 1 THEN subscriber_count END) AS subscribers
       FROM ranked
-      WHERE rn = 1
-      ORDER BY snapshot_date_msk DESC
-      LIMIT 90
+      GROUP BY snapshot_date_msk
     )
-    SELECT date, views, subscribers
-    FROM latest
-    ORDER BY date ASC`,
-  ).all<{ date: string; views: number; subscribers: number }>();
+    SELECT date, views_open, subscribers_open, views, subscribers
+    FROM daily
+    ORDER BY date DESC
+    LIMIT 90`,
+  ).all<{
+    date: string;
+    views_open: number;
+    subscribers_open: number;
+    views: number;
+    subscribers: number;
+  }>();
 
-  const rows = result.results || [];
+  const rows = (result.results || []).reverse();
   const withDelta: Array<{
     date: string;
     views: number;
@@ -739,9 +856,20 @@ async function getYoutubeDaily(
   for (let i = 0; i < rows.length; i += 1) {
     const current = rows[i];
     const prev = rows[i - 1];
-    const viewsDelta = prev ? Math.max(0, current.views - prev.views) : 0;
-    const subscribersDelta = prev ? Math.max(0, current.subscribers - prev.subscribers) : 0;
-    withDelta.push({ ...current, viewsDelta, subscribersDelta });
+    const viewsDelta = prev
+      ? Math.max(0, current.views - prev.views)
+      : Math.max(0, current.views - current.views_open);
+    const subscribersDelta = prev
+      ? Math.max(0, current.subscribers - prev.subscribers)
+      : Math.max(0, current.subscribers - current.subscribers_open);
+
+    withDelta.push({
+      date: current.date,
+      views: current.views,
+      subscribers: current.subscribers,
+      viewsDelta,
+      subscribersDelta,
+    });
   }
 
   return withDelta;
@@ -900,6 +1028,25 @@ function findFirstNumber(payload: unknown, keys: string[]): number | null {
   }
 
   return null;
+}
+
+function findYoutubeChannelId(payload: unknown): string {
+  const queue: unknown[] = [payload];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== "object") {
+      continue;
+    }
+    for (const [, value] of Object.entries(current as Record<string, unknown>)) {
+      if (typeof value === "string" && /^UC[\w-]{22}$/.test(value.trim())) {
+        return value.trim();
+      }
+      if (value && typeof value === "object") {
+        queue.push(value);
+      }
+    }
+  }
+  return "";
 }
 
 function normalizeDateString(input: unknown): string | null {
