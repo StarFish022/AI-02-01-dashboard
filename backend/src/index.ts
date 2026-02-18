@@ -276,7 +276,8 @@ async function syncYouTube(
       channelId = findYoutubeChannelId(minePayload);
     }
     if (channelId) {
-      statisticsInput = { ...statisticsInput, id: channelId };
+      // Some Composio integrations expect channelId, while older mappings may still use id.
+      statisticsInput = { ...statisticsInput, channelId, id: channelId };
     } else {
       return {
         name: "youtube",
