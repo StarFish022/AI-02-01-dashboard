@@ -256,6 +256,7 @@ async function syncYouTube(
 
   try {
     let channelId = env.YOUTUBE_CHANNEL_ID?.trim() || "";
+    let statisticsInput: Record<string, unknown> = { part: "statistics,snippet" };
     if (!channelId && env.YOUTUBE_CHANNEL_HANDLE?.trim()) {
       const resolvePayload = await executeComposioAction(
         env,
@@ -266,17 +267,28 @@ async function syncYouTube(
       channelId = findYoutubeChannelId(resolvePayload);
     }
     if (!channelId) {
+      const minePayload = await executeComposioAction(
+        env,
+        "YOUTUBE_LIST_CHANNEL_VIDEOS",
+        { mine: true, maxResults: 1, part: "snippet" },
+        env.COMPOSIO_CONNECTED_ACCOUNT_ID_YOUTUBE || env.COMPOSIO_CONNECTED_ACCOUNT_ID,
+      );
+      channelId = findYoutubeChannelId(minePayload);
+    }
+    if (channelId) {
+      statisticsInput = { ...statisticsInput, id: channelId };
+    } else {
       return {
         name: "youtube",
         status: "error",
-        detail: "Set YOUTUBE_CHANNEL_ID or YOUTUBE_CHANNEL_HANDLE in backend/.dev.vars",
+        detail: "Cannot resolve channel id from env, handle, or authenticated channel",
       };
     }
 
     const payload = await executeComposioAction(
       env,
       "YOUTUBE_GET_CHANNEL_STATISTICS",
-      { id: channelId, part: "statistics,snippet" },
+      statisticsInput,
       env.COMPOSIO_CONNECTED_ACCOUNT_ID_YOUTUBE || env.COMPOSIO_CONNECTED_ACCOUNT_ID,
     );
 
@@ -735,15 +747,14 @@ async function executeComposioAction(
   const body: Record<string, unknown> = {
     arguments: input,
   };
-  const useConnectedAccount = (env.COMPOSIO_USE_CONNECTED_ACCOUNT || "").trim().toLowerCase() === "true";
-  if (connectedAccountId && useConnectedAccount) {
+  if (connectedAccountId) {
     body.connected_account_id = connectedAccountId;
   }
   // Some projects require identity context with connected accounts.
   // Resolve it from connected account first, then fallback to env vars.
   const resolvedIdentity = await resolveComposioIdentity(
     env,
-    useConnectedAccount ? connectedAccountId : undefined,
+    connectedAccountId,
   );
   const composioUserId = resolvedIdentity.userId || env.COMPOSIO_USER_ID?.trim();
   const composioEntityId = resolvedIdentity.entityId || env.COMPOSIO_ENTITY_ID?.trim();
@@ -836,11 +847,24 @@ async function resolveComposioIdentity(
     }
 
     const payload = (await response.json()) as Record<string, unknown>;
-    const root = asRecord(payload.data) || payload;
+    const payloadRecord = asRecord(payload) || {};
+    const dataRecord = asRecord(payloadRecord.data) || {};
+
+    const userIdRaw =
+      payloadRecord.user_id ??
+      payloadRecord.userId ??
+      dataRecord.user_id ??
+      dataRecord.userId;
+    const entityIdRaw =
+      payloadRecord.entity_id ??
+      payloadRecord.entityId ??
+      dataRecord.entity_id ??
+      dataRecord.entityId;
+
     const userId =
-      typeof root.user_id === "string" && root.user_id.trim() ? root.user_id.trim() : undefined;
+      typeof userIdRaw === "string" && userIdRaw.trim() ? userIdRaw.trim() : undefined;
     const entityId =
-      typeof root.entity_id === "string" && root.entity_id.trim() ? root.entity_id.trim() : undefined;
+      typeof entityIdRaw === "string" && entityIdRaw.trim() ? entityIdRaw.trim() : undefined;
 
     const resolved = { userId, entityId };
     composioIdentityCache.set(connectedAccountId, resolved);
