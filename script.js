@@ -155,6 +155,23 @@ function fmtSignedPct(value) {
   return `${sign}${value.toFixed(1)}%`;
 }
 
+function fmtAiPct(value) {
+  if (value === null || !Number.isFinite(value)) {
+    return "н/д";
+  }
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(1)}%`;
+}
+
+function trendTone(value, positiveThreshold = 5, negativeThreshold = -5) {
+  if (value === null || !Number.isFinite(value)) {
+    return "warning";
+  }
+  if (value >= positiveThreshold) return "positive";
+  if (value <= negativeThreshold) return "negative";
+  return "warning";
+}
+
 function dateLabel(dateString) {
   const date = new Date(dateString);
   return date.toLocaleDateString("en-US");
@@ -375,6 +392,123 @@ function renderMetrics(dayData) {
     const key = chartHost.dataset.chart;
     const color = key.includes("sales") ? "#2b58de" : "#ff7e5f";
     buildMiniChart(chartHost, seriesMap[key] || [], color);
+  });
+}
+
+function renderAiAnalytics() {
+  const scoreNode = document.getElementById("aiHealthScore");
+  const weightsNode = document.getElementById("aiKpiWeights");
+  const summaryNode = document.getElementById("aiSummary");
+  const horizonsNode = document.getElementById("aiHorizons");
+  const signalsNode = document.getElementById("aiSignals");
+  const actionsNode = document.getElementById("aiActions");
+
+  if (
+    !scoreNode ||
+    !weightsNode ||
+    !summaryNode ||
+    !horizonsNode ||
+    !signalsNode ||
+    !actionsNode
+  ) {
+    return;
+  }
+
+  const ai = state.dashboard?.ai;
+  if (!ai) {
+    scoreNode.textContent = "0";
+    scoreNode.dataset.tone = "neutral";
+    weightsNode.textContent = "KPI веса: 60/20/20";
+    summaryNode.textContent = "AI-аналитика появится после загрузки данных из API.";
+    horizonsNode.innerHTML = "";
+    signalsNode.innerHTML = "";
+    actionsNode.innerHTML = "";
+    return;
+  }
+
+  scoreNode.textContent = fmtNumber(ai.score || 0);
+  scoreNode.dataset.tone = ai.scoreTone || "neutral";
+  const kpi = ai.kpiWeights || { business: 60, speed: 20, quality: 20 };
+  weightsNode.textContent = `KPI веса: ${kpi.business}/${kpi.speed}/${kpi.quality}`;
+  summaryNode.textContent = ai.summary || "AI-резюме недоступно";
+
+  horizonsNode.innerHTML = "";
+  (ai.horizons || []).forEach((horizon) => {
+    const card = document.createElement("article");
+    card.className = "ai-horizon-card";
+
+    const title = document.createElement("p");
+    title.className = "ai-horizon-title";
+    title.textContent = horizon.label || horizon.key || "Горизонт";
+    card.appendChild(title);
+
+    const sales = document.createElement("p");
+    sales.className = "ai-horizon-sales";
+    sales.textContent = `Факт: ${fmtMoney(horizon.sales?.actual || 0)}`;
+    card.appendChild(sales);
+
+    const range = document.createElement("p");
+    range.className = "ai-horizon-range";
+    range.textContent =
+      `Прогноз: ${fmtMoney(horizon.sales?.forecast || 0)} · ${fmtMoney(horizon.sales?.min || 0)} - ${fmtMoney(horizon.sales?.max || 0)}`;
+    card.appendChild(range);
+
+    const trend = document.createElement("p");
+    trend.className = "ai-horizon-trend";
+    trend.dataset.tone = trendTone(horizon.sales?.trendPct);
+    trend.textContent = `Тренд продаж: ${fmtAiPct(horizon.sales?.trendPct ?? null)}`;
+    card.appendChild(trend);
+
+    const youtube = document.createElement("p");
+    youtube.className = "ai-horizon-youtube";
+    youtube.textContent =
+      `YouTube: +${fmtNumber(horizon.youtube?.views || 0)} views, +${fmtNumber(horizon.youtube?.subscribers || 0)} subs`;
+    card.appendChild(youtube);
+
+    const confidence = document.createElement("p");
+    confidence.className = "ai-horizon-confidence";
+    const confidenceMap = { high: "высокая", medium: "средняя", low: "низкая" };
+    const confidenceKey = String(horizon.confidence || "low").toLowerCase();
+    confidence.textContent = `Уверенность: ${confidenceMap[confidenceKey] || "низкая"}`;
+    card.appendChild(confidence);
+
+    horizonsNode.appendChild(card);
+  });
+
+  signalsNode.innerHTML = "";
+  (ai.signals || []).forEach((signal) => {
+    const item = document.createElement("li");
+    item.dataset.tone = signal.tone;
+    const label = document.createElement("strong");
+    label.textContent = `${signal.label}:`;
+    item.appendChild(label);
+    item.appendChild(document.createTextNode(` ${signal.value}`));
+    signalsNode.appendChild(item);
+  });
+
+  actionsNode.innerHTML = "";
+  (ai.actions || []).forEach((action) => {
+    const item = document.createElement("li");
+    const head = document.createElement("div");
+    head.className = "ai-action-head";
+
+    const priority = document.createElement("span");
+    priority.className = "ai-action-priority";
+    priority.dataset.priority = action.priority || "Low";
+    priority.textContent = action.priority || "Low";
+    head.appendChild(priority);
+
+    const effect = document.createElement("span");
+    effect.className = "ai-action-effect";
+    effect.textContent = action.expectedEffect || "";
+    head.appendChild(effect);
+
+    const text = document.createElement("p");
+    text.textContent = action.text || "";
+
+    item.appendChild(head);
+    item.appendChild(text);
+    actionsNode.appendChild(item);
   });
 }
 
@@ -627,6 +761,7 @@ function renderAll() {
   renderSalesCard(state.dayData);
   renderSalesTable(state.salesRows);
   renderMetrics(state.dayData);
+  renderAiAnalytics();
   renderTelegramPosts();
   renderCalendarEvents();
   syncRightColumnHeight();

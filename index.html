@@ -128,6 +128,39 @@
             <div class="mini-chart" data-chart="youtubeSubscribers"></div>
           </article>
         </section>
+
+        <section class="card section-ai-analytics" aria-label="AI аналитика">
+          <h2>
+            <span class="section-icon ai-icon">✦</span>
+            AI аналитика
+          </h2>
+
+          <div class="ai-grid">
+            <article class="ai-score-card">
+              <p class="ai-label">AI Health Score</p>
+              <p class="ai-score" id="aiHealthScore">0</p>
+              <p class="ai-confidence" id="aiKpiWeights">KPI веса: 60/20/20</p>
+            </article>
+
+            <article class="ai-summary-card">
+              <p class="ai-label">Итог AI-оценки</p>
+              <p class="ai-summary" id="aiSummary">Недостаточно данных для AI-аналитики.</p>
+            </article>
+          </div>
+
+          <div class="ai-horizons" id="aiHorizons"></div>
+
+          <div class="ai-columns">
+            <div>
+              <p class="ai-list-title">Сигналы</p>
+              <ul class="ai-list" id="aiSignals"></ul>
+            </div>
+            <div>
+              <p class="ai-list-title">Рекомендации</p>
+              <ul class="ai-list ai-actions" id="aiActions"></ul>
+            </div>
+          </div>
+        </section>
       </main>
     </div>
 

@@ -76,6 +76,44 @@ type DashboardResponse = {
       url: string | null;
     }>;
   };
+  ai: {
+    kpiWeights: {
+      business: number;
+      speed: number;
+      quality: number;
+    };
+    score: number;
+    scoreTone: "good" | "neutral" | "risk";
+    summary: string;
+    horizons: Array<{
+      key: "24h" | "7d" | "30d";
+      label: string;
+      confidence: "high" | "medium" | "low";
+      sales: {
+        actual: number;
+        forecast: number;
+        min: number;
+        max: number;
+        trendPct: number | null;
+      };
+      youtube: {
+        views: number;
+        subscribers: number;
+        viewsTrendPct: number | null;
+        subscribersTrendPct: number | null;
+      };
+    }>;
+    signals: Array<{
+      label: string;
+      value: string;
+      tone: "positive" | "warning" | "negative";
+    }>;
+    actions: Array<{
+      text: string;
+      priority: "High" | "Medium" | "Low";
+      expectedEffect: string;
+    }>;
+  };
 };
 
 const JSON_HEADERS: HeadersInit = { "content-type": "application/json; charset=utf-8" };
@@ -172,6 +210,12 @@ async function getDashboardPayload(env: Env): Promise<DashboardResponse> {
 
   const youtubeTotals = summarizeYouTube(youtubeDaily);
   const trendPct = computeWeekOverWeekTrend(salesDaily);
+  const ai = buildAiAnalyticsPayload({
+    salesRows,
+    salesDaily,
+    youtubeDaily,
+    calendarEvents,
+  });
 
   return {
     generatedAt: new Date().toISOString(),
@@ -192,6 +236,7 @@ async function getDashboardPayload(env: Env): Promise<DashboardResponse> {
     calendar: {
       events: calendarEvents,
     },
+    ai,
   };
 }
 
@@ -1108,6 +1153,318 @@ function computeWeekOverWeekTrend(daily: Array<{ amount: number }>): number {
     return 0;
   }
   return round2(((current - previous) / previous) * 100);
+}
+
+function buildAiAnalyticsPayload(input: {
+  salesRows: Array<{ title: string; cost: number; count: number; date: string }>;
+  salesDaily: Array<{ date: string; amount: number; count: number }>;
+  youtubeDaily: Array<{ viewsDelta: number; subscribersDelta: number }>;
+  calendarEvents: Array<{ startAt: string }>;
+}): DashboardResponse["ai"] {
+  const salesAmounts = input.salesDaily.map((item) => Math.max(0, item.amount));
+  const ytViews = input.youtubeDaily.map((item) => Math.max(0, item.viewsDelta));
+  const ytSubs = input.youtubeDaily.map((item) => Math.max(0, item.subscribersDelta));
+
+  const sales7 = sumLastWindow(salesAmounts, 7);
+  const salesPrev7 = sumLastWindow(salesAmounts, 7, 7);
+  const salesWoW = computeRelativePctOrNull(sales7, salesPrev7);
+
+  const views7 = sumLastWindow(ytViews, 7);
+  const viewsPrev7 = sumLastWindow(ytViews, 7, 7);
+  const viewsWoW = computeRelativePctOrNull(views7, viewsPrev7);
+
+  const subs7 = sumLastWindow(ytSubs, 7);
+  const subsPrev7 = sumLastWindow(ytSubs, 7, 7);
+  const subsWoW = computeRelativePctOrNull(subs7, subsPrev7);
+
+  const recentSales = salesAmounts.slice(-14);
+  const salesVolatility = standardDeviation(recentSales);
+  const salesAverage = mean(recentSales);
+  const topSharePct = computeTopProductSharePct(input.salesRows, input.salesDaily, 30);
+  const calendarLoad = input.calendarEvents.length;
+
+  const businessScore = 50 + clampNumber((salesWoW ?? 0) / 30, -1, 1) * 50;
+  const speedScore = clampNumber(85 - calendarLoad * 7, 25, 95);
+  const qualityPenaltyConcentration = topSharePct > 55 ? 22 : topSharePct > 45 ? 10 : 0;
+  const qualityPenaltyVolatility = salesAverage > 0
+    ? clampNumber((salesVolatility / salesAverage - 0.3) * 35, 0, 18)
+    : 18;
+  const qualityBoostSubs = clampNumber((subsWoW ?? 0) / 10, -1, 1) * 8;
+  const qualityScore = clampNumber(
+    70 - qualityPenaltyConcentration - qualityPenaltyVolatility + qualityBoostSubs,
+    20,
+    95,
+  );
+
+  const score = Math.round((businessScore * 60 + speedScore * 20 + qualityScore * 20) / 100);
+  const scoreTone: "good" | "neutral" | "risk" = score >= 70 ? "good" : score >= 45 ? "neutral" : "risk";
+
+  const horizons: DashboardResponse["ai"]["horizons"] = [
+    buildAiHorizon("24h", "24 часа", 1, salesAmounts, ytViews, ytSubs),
+    buildAiHorizon("7d", "7 дней", 7, salesAmounts, ytViews, ytSubs),
+    buildAiHorizon("30d", "30 дней", 30, salesAmounts, ytViews, ytSubs),
+  ];
+
+  const summaryLead = score >= 70
+    ? "Позитивный импульс по ключевым метрикам."
+    : score >= 45
+    ? "Динамика нейтральная, нужны точечные улучшения."
+    : "Обнаружена зона риска, нужен фокус на росте продаж.";
+
+  const summary =
+    `${summaryLead} 7д: продажи ${formatSignedPct(salesWoW)}, YouTube просмотры ${formatSignedPct(viewsWoW)}, подписчики ${formatSignedPct(subsWoW)}.`;
+
+  const signals: DashboardResponse["ai"]["signals"] = [
+    { label: "Продажи 7д к прошлым 7д", value: formatSignedPct(salesWoW), tone: trendTone(salesWoW) },
+    { label: "YouTube просмотры 7д", value: formatSignedPct(viewsWoW), tone: trendTone(viewsWoW) },
+    {
+      label: "Концентрация выручки по топ-товару",
+      value: `${topSharePct.toFixed(1)}%`,
+      tone: topSharePct > 55 ? "negative" : topSharePct > 45 ? "warning" : "positive",
+    },
+    {
+      label: "Нагрузка календаря (72ч)",
+      value: `${calendarLoad} событий`,
+      tone: calendarLoad >= 8 ? "negative" : calendarLoad >= 5 ? "warning" : "positive",
+    },
+  ];
+
+  const actions: DashboardResponse["ai"]["actions"] = [];
+  if (salesWoW !== null && salesWoW < -5) {
+    actions.push({
+      priority: "High",
+      expectedEffect: "+4-8% к выручке за 30 дней",
+      text: "Пересобери оффер и промо верхних SKU: ежедневный контроль цены, стока и карточки товара.",
+    });
+  }
+  if (topSharePct > 50) {
+    actions.push({
+      priority: "High",
+      expectedEffect: "-10-20% риска просадки выручки",
+      text: "Снизь зависимость от топ-товара: выдели 2 товара-кандидата и запусти ротацию промо.",
+    });
+  }
+  if (viewsWoW !== null && viewsWoW > 8 && (salesWoW ?? 0) < 3) {
+    actions.push({
+      priority: "Medium",
+      expectedEffect: "+2-5% к конверсии трафика",
+      text: "Добавь сильный CTA в YouTube: ссылка в первые строки описания + закрепленный комментарий.",
+    });
+  }
+  if (subsWoW !== null && subsWoW < 0) {
+    actions.push({
+      priority: "Medium",
+      expectedEffect: "+3-6% к приросту подписчиков",
+      text: "Оптимизируй первые 30 секунд роликов: сформулируй результат видео в первом экране.",
+    });
+  }
+  if (calendarLoad >= 6) {
+    actions.push({
+      priority: "Medium",
+      expectedEffect: "-15-25% потерь времени на контекст-свитч",
+      text: "Заблокируй 2 фокус-окна в календаре под контент и анализ, чтобы ускорить исполнение решений.",
+    });
+  }
+
+  const fallbackActions: DashboardResponse["ai"]["actions"] = [
+    {
+      priority: "Low",
+      expectedEffect: "+1-3% к стабильности прогноза",
+      text: "Сравнивай прогноз/факт каждые 24 часа и корректируй план публикаций.",
+    },
+    {
+      priority: "Low",
+      expectedEffect: "+1-4% к удержанию результата",
+      text: "Закрепляй лучшие форматы постов и видео и повторяй их в следующем цикле.",
+    },
+    {
+      priority: "Low",
+      expectedEffect: "-5-10% вероятности просадки",
+      text: "Отслеживай товары с падающим спросом и заранее готовь точечные акции.",
+    },
+  ];
+  for (const fallback of fallbackActions) {
+    if (actions.length >= 3) break;
+    if (!actions.some((item) => item.text === fallback.text)) {
+      actions.push(fallback);
+    }
+  }
+
+  return {
+    kpiWeights: { business: 60, speed: 20, quality: 20 },
+    score: clampNumber(score, 0, 100),
+    scoreTone,
+    summary,
+    horizons,
+    signals,
+    actions: actions.slice(0, 3),
+  };
+}
+
+function buildAiHorizon(
+  key: "24h" | "7d" | "30d",
+  label: string,
+  days: number,
+  salesAmounts: number[],
+  ytViews: number[],
+  ytSubs: number[],
+): DashboardResponse["ai"]["horizons"][number] {
+  const actualSales = round2(sumLastWindow(salesAmounts, days));
+  const previousSales = sumLastWindow(salesAmounts, days, days);
+  const salesTrend = computeRelativePctOrNull(actualSales, previousSales);
+  const forecast = forecastSalesWindow(salesAmounts, days);
+
+  const views = Math.round(sumLastWindow(ytViews, days));
+  const viewsPrev = sumLastWindow(ytViews, days, days);
+  const viewsTrend = computeRelativePctOrNull(views, viewsPrev);
+
+  const subscribers = Math.round(sumLastWindow(ytSubs, days));
+  const subscribersPrev = sumLastWindow(ytSubs, days, days);
+  const subscribersTrend = computeRelativePctOrNull(subscribers, subscribersPrev);
+
+  return {
+    key,
+    label,
+    confidence: forecast.confidence,
+    sales: {
+      actual: actualSales,
+      forecast: forecast.total,
+      min: forecast.min,
+      max: forecast.max,
+      trendPct: salesTrend,
+    },
+    youtube: {
+      views,
+      subscribers,
+      viewsTrendPct: viewsTrend,
+      subscribersTrendPct: subscribersTrend,
+    },
+  };
+}
+
+function forecastSalesWindow(
+  salesAmounts: number[],
+  days: number,
+): { total: number; min: number; max: number; confidence: "high" | "medium" | "low" } {
+  const series = salesAmounts.slice(-14).filter((value) => Number.isFinite(value) && value >= 0);
+  if (series.length === 0) {
+    return { total: 0, min: 0, max: 0, confidence: "low" };
+  }
+
+  const first = series[0];
+  const last = series[series.length - 1];
+  const slope = series.length > 1 ? (last - first) / (series.length - 1) : 0;
+
+  let total = 0;
+  for (let i = 1; i <= days; i += 1) {
+    total += Math.max(0, last + slope * i);
+  }
+
+  const avg = mean(series);
+  const volatility = standardDeviation(series);
+  const spread = volatility * Math.sqrt(days);
+  const min = Math.max(0, total - spread);
+  const max = Math.max(min, total + spread);
+  const cv = avg > 0 ? volatility / avg : 1;
+
+  let confidence: "high" | "medium" | "low" = "low";
+  if (cv < 0.18 && series.length >= 10) {
+    confidence = "high";
+  } else if (cv < 0.35 && series.length >= 7) {
+    confidence = "medium";
+  }
+
+  return {
+    total: round2(total),
+    min: round2(min),
+    max: round2(max),
+    confidence,
+  };
+}
+
+function sumLastWindow(values: number[], size: number, offset = 0): number {
+  const end = values.length - offset;
+  const start = Math.max(0, end - size);
+  return values.slice(start, end).reduce((sum, value) => sum + value, 0);
+}
+
+function computeRelativePctOrNull(current: number, previous: number): number | null {
+  if (previous <= 0) {
+    return current > 0 ? null : 0;
+  }
+  return round2(((current - previous) / previous) * 100);
+}
+
+function mean(values: number[]): number {
+  if (values.length === 0) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function standardDeviation(values: number[]): number {
+  if (values.length < 2) return 0;
+  const avg = mean(values);
+  const variance = mean(values.map((value) => (value - avg) ** 2));
+  return Math.sqrt(variance);
+}
+
+function computeTopProductSharePct(
+  rows: Array<{ title: string; cost: number; count: number; date: string }>,
+  salesDaily: Array<{ date: string }>,
+  days: number,
+): number {
+  if (rows.length === 0 || salesDaily.length === 0) {
+    return 0;
+  }
+  const startIdx = Math.max(0, salesDaily.length - days);
+  const minDate = salesDaily[startIdx]?.date || salesDaily[0].date;
+  if (!minDate) {
+    return 0;
+  }
+
+  const byProduct = new Map<string, number>();
+  let totalAmount = 0;
+  for (const row of rows) {
+    if (!row.date || row.date < minDate) {
+      continue;
+    }
+    const amount = Math.max(0, row.cost * row.count);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      continue;
+    }
+    totalAmount += amount;
+    byProduct.set(row.title, (byProduct.get(row.title) || 0) + amount);
+  }
+
+  if (totalAmount <= 0 || byProduct.size === 0) {
+    return 0;
+  }
+
+  let maxAmount = 0;
+  for (const amount of byProduct.values()) {
+    maxAmount = Math.max(maxAmount, amount);
+  }
+  return round2((maxAmount / totalAmount) * 100);
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function formatSignedPct(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) {
+    return "н/д";
+  }
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(1)}%`;
+}
+
+function trendTone(value: number | null): "positive" | "warning" | "negative" {
+  if (value === null || !Number.isFinite(value)) {
+    return "warning";
+  }
+  if (value >= 5) return "positive";
+  if (value <= -5) return "negative";
+  return "warning";
 }
 
 function extractCalendarEventsFromPayload(
