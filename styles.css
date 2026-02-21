@@ -44,10 +44,10 @@ h2,
 
 .app-container {
   width: min(1440px, 100%);
-  background: var(--bg-app);
+  background: transparent;
   border-radius: var(--radius-app);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18);
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow: none;
+  border: none;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -79,7 +79,7 @@ h2,
   grid-template-rows: min-content min-content;
   gap: 16px;
   padding: 24px;
-  background: #fafafa;
+  background: transparent;
   align-items: start;
 }
 
