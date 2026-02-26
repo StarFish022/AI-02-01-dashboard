@@ -399,6 +399,10 @@ function renderAiAnalytics() {
   const scoreNode = document.getElementById("aiHealthScore");
   const weightsNode = document.getElementById("aiKpiWeights");
   const summaryNode = document.getElementById("aiSummary");
+  const summaryOverviewNode = document.getElementById("aiSummaryOverview");
+  const summaryTotalsNode = document.getElementById("aiSummaryTotals");
+  const summaryFocusNode = document.getElementById("aiSummaryFocus");
+  const summaryStrongestNode = document.getElementById("aiSummaryStrongest");
   const horizonsNode = document.getElementById("aiHorizons");
   const signalsNode = document.getElementById("aiSignals");
   const actionsNode = document.getElementById("aiActions");
@@ -407,6 +411,10 @@ function renderAiAnalytics() {
     !scoreNode ||
     !weightsNode ||
     !summaryNode ||
+    !summaryOverviewNode ||
+    !summaryTotalsNode ||
+    !summaryFocusNode ||
+    !summaryStrongestNode ||
     !horizonsNode ||
     !signalsNode ||
     !actionsNode
@@ -420,6 +428,10 @@ function renderAiAnalytics() {
     scoreNode.dataset.tone = "neutral";
     weightsNode.textContent = "KPI веса: 60/20/20";
     summaryNode.textContent = "AI-аналитика появится после загрузки данных из API.";
+    summaryOverviewNode.textContent = "Сводка по советам LLM появится после загрузки данных.";
+    summaryTotalsNode.textContent = "Всего: 0 · High: 0 · Medium: 0 · Low: 0";
+    summaryFocusNode.innerHTML = "";
+    summaryStrongestNode.textContent = "Макс. ожидаемый эффект: н/д";
     horizonsNode.innerHTML = "";
     signalsNode.innerHTML = "";
     actionsNode.innerHTML = "";
@@ -431,6 +443,31 @@ function renderAiAnalytics() {
   const kpi = ai.kpiWeights || { business: 60, speed: 20, quality: 20 };
   weightsNode.textContent = `KPI веса: ${kpi.business}/${kpi.speed}/${kpi.quality}`;
   summaryNode.textContent = ai.summary || "AI-резюме недоступно";
+
+  const summaryPanel = ai.summaryPanel || {};
+  const byPriority = summaryPanel.byPriority || { High: 0, Medium: 0, Low: 0 };
+  const totalActions = Number.isFinite(summaryPanel.totalActions) ? summaryPanel.totalActions : 0;
+  summaryOverviewNode.textContent = summaryPanel.overview || "Сводка по советам LLM недоступна.";
+  summaryTotalsNode.textContent =
+    `Всего: ${fmtNumber(totalActions)} · ` +
+    `High: ${fmtNumber(byPriority.High || 0)} · ` +
+    `Medium: ${fmtNumber(byPriority.Medium || 0)} · ` +
+    `Low: ${fmtNumber(byPriority.Low || 0)}`;
+
+  summaryFocusNode.innerHTML = "";
+  const focusAreas = Array.isArray(summaryPanel.focusAreas) ? summaryPanel.focusAreas : [];
+  if (!focusAreas.length) {
+    const item = document.createElement("li");
+    item.textContent = "Фокусы советов пока не определены.";
+    summaryFocusNode.appendChild(item);
+  } else {
+    focusAreas.forEach((focus) => {
+      const item = document.createElement("li");
+      item.textContent = `${focus.label}: ${fmtNumber(focus.count || 0)}`;
+      summaryFocusNode.appendChild(item);
+    });
+  }
+  summaryStrongestNode.textContent = `Макс. ожидаемый эффект: ${summaryPanel.strongestEffect || "н/д"}`;
 
   horizonsNode.innerHTML = "";
   (ai.horizons || []).forEach((horizon) => {

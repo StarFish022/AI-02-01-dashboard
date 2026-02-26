@@ -113,6 +113,20 @@ type DashboardResponse = {
       priority: "High" | "Medium" | "Low";
       expectedEffect: string;
     }>;
+    summaryPanel: {
+      totalActions: number;
+      byPriority: {
+        High: number;
+        Medium: number;
+        Low: number;
+      };
+      focusAreas: Array<{
+        label: string;
+        count: number;
+      }>;
+      strongestEffect: string;
+      overview: string;
+    };
   };
 };
 
@@ -1282,13 +1296,26 @@ function buildAiAnalyticsPayload(input: {
       expectedEffect: "-5-10% вероятности просадки",
       text: "Отслеживай товары с падающим спросом и заранее готовь точечные акции.",
     },
+    {
+      priority: "Low",
+      expectedEffect: "+1-2% к предсказуемости роста",
+      text: "Фиксируй гипотезы по каналам в weekly-цикле и отмечай, что реально сработало.",
+    },
+    {
+      priority: "Low",
+      expectedEffect: "+1-3% к скорости принятия решений",
+      text: "Обновляй приоритеты задач раз в неделю по факту динамики продаж и трафика.",
+    },
   ];
+
+  const allActions: DashboardResponse["ai"]["actions"] = [...actions];
   for (const fallback of fallbackActions) {
-    if (actions.length >= 3) break;
-    if (!actions.some((item) => item.text === fallback.text)) {
-      actions.push(fallback);
+    if (allActions.length >= 5) break;
+    if (!allActions.some((item) => item.text === fallback.text)) {
+      allActions.push(fallback);
     }
   }
+  const summaryPanel = buildAiSummaryPanel(allActions);
 
   return {
     kpiWeights: { business: 60, speed: 20, quality: 20 },
@@ -1297,8 +1324,111 @@ function buildAiAnalyticsPayload(input: {
     summary,
     horizons,
     signals,
-    actions: actions.slice(0, 3),
+    actions: allActions.slice(0, 3),
+    summaryPanel,
   };
+}
+
+function buildAiSummaryPanel(
+  actions: DashboardResponse["ai"]["actions"],
+): DashboardResponse["ai"]["summaryPanel"] {
+  const byPriority = { High: 0, Medium: 0, Low: 0 };
+  const focusCounts = new Map<string, number>();
+  let strongestEffect = "н/д";
+  let strongestMagnitude = -1;
+
+  for (const action of actions) {
+    if (action.priority === "High" || action.priority === "Medium" || action.priority === "Low") {
+      byPriority[action.priority] += 1;
+    }
+
+    const focusLabel = detectAiActionFocusArea(action.text);
+    focusCounts.set(focusLabel, (focusCounts.get(focusLabel) ?? 0) + 1);
+
+    const magnitude = extractEffectMagnitude(action.expectedEffect);
+    if (magnitude !== null && magnitude > strongestMagnitude) {
+      strongestMagnitude = magnitude;
+      strongestEffect = action.expectedEffect;
+    }
+  }
+
+  const focusAreas = [...focusCounts.entries()]
+    .sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0], "ru");
+    })
+    .slice(0, 3)
+    .map(([label, count]) => ({ label, count }));
+
+  const focusText =
+    focusAreas.length > 0
+      ? focusAreas.map((item) => `${item.label} (${item.count})`).join(", ")
+      : "нет данных";
+
+  const overview =
+    `Сводка по ${actions.length} советам. ` +
+    `Приоритеты: High ${byPriority.High}, Medium ${byPriority.Medium}, Low ${byPriority.Low}. ` +
+    `Фокус: ${focusText}.`;
+
+  return {
+    totalActions: actions.length,
+    byPriority,
+    focusAreas,
+    strongestEffect,
+    overview,
+  };
+}
+
+function detectAiActionFocusArea(text: string): string {
+  const normalized = text.toLowerCase();
+  if (
+    normalized.includes("youtube") ||
+    normalized.includes("ролик") ||
+    normalized.includes("подписчик") ||
+    normalized.includes("cta") ||
+    normalized.includes("контент")
+  ) {
+    return "YouTube и контент";
+  }
+  if (
+    normalized.includes("товар") ||
+    normalized.includes("sku") ||
+    normalized.includes("выручк") ||
+    normalized.includes("продаж") ||
+    normalized.includes("оффер") ||
+    normalized.includes("промо")
+  ) {
+    return "Продажи и оффер";
+  }
+  if (
+    normalized.includes("календар") ||
+    normalized.includes("фокус") ||
+    normalized.includes("времени") ||
+    normalized.includes("weekly") ||
+    normalized.includes("план")
+  ) {
+    return "Операционная дисциплина";
+  }
+  return "Общие улучшения";
+}
+
+function extractEffectMagnitude(effect: string): number | null {
+  const rangeMatch = effect.match(/([+-]?\d+(?:\.\d+)?)\s*-\s*([+-]?\d+(?:\.\d+)?)\s*%/u);
+  if (rangeMatch) {
+    const first = Math.abs(Number(rangeMatch[1]));
+    const second = Math.abs(Number(rangeMatch[2]));
+    if (Number.isFinite(first) && Number.isFinite(second)) {
+      return Math.max(first, second);
+    }
+  }
+
+  const singleMatch = effect.match(/([+-]?\d+(?:\.\d+)?)\s*%/u);
+  if (singleMatch) {
+    const value = Math.abs(Number(singleMatch[1]));
+    return Number.isFinite(value) ? value : null;
+  }
+
+  return null;
 }
 
 function buildAiHorizon(
